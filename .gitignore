@@ -1,0 +1,9 @@
+config.py
+*.apk
+*.dex
+*.hprof
+.venv/
+__pycache__/
+secrets.yaml
+t1_secrets.yaml
+localkey.txt
