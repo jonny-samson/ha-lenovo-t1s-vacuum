@@ -1,0 +1,1 @@
+# ha-lenovo-t1s-vacuum
