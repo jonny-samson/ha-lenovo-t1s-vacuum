@@ -11,9 +11,6 @@ Tested on firmware 0.3.6 (build 1900) and Home Assistant 2026.2.
 2. Download **Lenovo T1 Pro Vacuum**, then restart Home Assistant.
 3. **Settings > Devices & services > Add integration > Lenovo T1 Pro Vacuum**.
 
-> HACS needs access to the repository. A private repo works only if HACS' GitHub token can read it; the
-> simplest route is a public repo (nothing identifying is stored here).
-
 ## What you need
 
 | Field | Where it comes from |
