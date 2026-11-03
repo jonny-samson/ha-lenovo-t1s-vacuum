@@ -1,0 +1,11 @@
+clean_rooms:
+  target:
+    entity:
+      integration: lenovo_t1
+      domain: vacuum
+  fields:
+    rooms:
+      required: true
+      example: '["Kitchen", "Living Room"]'
+      selector:
+        object:

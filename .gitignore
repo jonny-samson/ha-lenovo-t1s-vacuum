@@ -1,9 +1,14 @@
+# secrets and local files: never commit
+tools/config.py
 config.py
-*.apk
-*.dex
-*.hprof
-.venv/
-__pycache__/
 secrets.yaml
 t1_secrets.yaml
 localkey.txt
+*.apk
+*.dex
+*.hprof
+# python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/

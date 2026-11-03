@@ -1,13 +1,7 @@
-"""Protocol constants for the Lenovo T1 Pro (local Tuya) standalone client.
+"""Protocol constants for the Lenovo T1 Pro (local Tuya).
 
-Mirrors custom_components/lenovo_t1/const.py in the HA integration — this
-file is the single source of truth while we iterate standalone; port
-changes back into the HA component once confirmed on real hardware.
-
-- CONFIRMED: decompiled from the real app dex (dumped live via Frida from
-  com.ldrobot.tys1 v1.9.20's SocketPackageManager/SocketUrl), see
-  docs/PROTOCOL.md for the full writeup.
-- UNCONFIRMED: explicitly marked — a reasoned guess, not decompiled.
+Values come from the decompiled vendor app and were verified live on the device;
+see docs/PROTOCOL.md for the full write-up.
 """
 
 # ---- infoType values (CONFIRMED, SocketUrl) ----
@@ -70,10 +64,10 @@ CONSUMABLE_KEYS = (
     KEY_CONSUMABLE_SENSORS,
 )
 
-# UNCONFIRMED: no "reset" command exists in the protocol — SET_CONSUMABLE
-# just writes an absolute value per field. 100 (full life) is a reasoned
-# assumption, not a decompiled fact.
-CONSUMABLE_RESET_VALUE = 0  # verified: the app zeroes the counter (life 200 h = 720000 s)
+# Counters are run-time seconds; SET_CONSUMABLE writes an absolute value per field,
+# and the app "resets" by writing 0. Life is 200 h for filter and brushes.
+CONSUMABLE_RESET_VALUE = 0
+CONSUMABLE_LIFE_SECONDS = 720000
 
 # Fault/notification code -> human description (20003 data.msg.code).
 # CONFIRMED flat decimal ID table (48 entries), not a bitmask. 0 = no fault.

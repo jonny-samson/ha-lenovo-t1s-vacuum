@@ -1,37 +1,87 @@
-# Lenovo T1 Pro (Proscenic M7 Pro, Tuya OEM `com.ldrobot.tys1`) — local control
+# Lenovo T1 Pro robot vacuum for Home Assistant
 
-Local (LAN) control of the Lenovo Cleaner T1 / T1 Pro robot vacuum over the Tuya 3.3 protocol, for Home Assistant.
-Maps stay in the vendor app; everything else is controllable locally. Reverse-engineered from the app and
-verified live on the device (October 2026, firmware 0.3.6 / build 1900).
+Local (LAN) control of the Lenovo Cleaner T1 / T1 Pro robot vacuum (Proscenic M7 Pro, Tuya OEM
+`com.ldrobot.tys1`) over the Tuya 3.3 protocol. No cloud, no YAML. Install through HACS, set it up in the UI.
 
-## How the device talks
-- Tuya local protocol **v3.3**, TCP 6668, one logical DP: **DP 102 (raw)**. No standard Tuya DPs are used.
-- Payload is JSON, **base64-encoded in both directions**. (The app SDK takes hex and converts; tinytuya does
-  not, so sending hex does nothing.)
-- Envelope: `{"connectionType":0|1,"dInfo":{"ts":..,"userId":..},"data":{..,"sn":..,"userId":..},"infoType":N,"isShowTip":false}`
-- The vacuum is silent while docked until asked; a bare `20001` query returns the full state. Once moving it
-  reports about twice a second. Local and app connections can coexist when the app is idle.
-- Needs: device ID, local key, IP, plus `sn` and `userId` (copy both from any app command or state reply).
-  Keep these in secrets, never in the repo. **Never re-pair or reset the vacuum: that changes the local key.**
+Tested on firmware 0.3.6 (build 1900) and Home Assistant 2026.2.
 
-## What works (all tested live)
-Find robot, LED, volume, fan (Low/Medium/High/Off), pause/resume, dock (and cancel), total clean, single and
-multi-room clean (cleaned in the order given), room rename and per-room double pass, split/merge rooms,
-remote control, state/battery/area/time, consumable counters and reset, 7 fault codes (+ relocate messages),
-firmware/Wi-Fi/fault-detection reads. Details and exact messages: `docs/PROTOCOL.md`.
+## Install (HACS custom repository)
 
-## Not applicable to this model
-Mop/water level, dust-station emptying, schedules (HA owns scheduling; the two on-device schedules are disabled).
+1. HACS > three-dot menu > **Custom repositories** > add this repo's URL, category **Integration**.
+2. Download **Lenovo T1 Pro Vacuum**, then restart Home Assistant.
+3. **Settings > Devices & services > Add integration > Lenovo T1 Pro Vacuum**.
 
-## Not done / open
-- Side brush fault (`-2402`) and the other fault codes in the app's table are untested; only decoded from the app.
-- Double pass is stored (`active: depth`) but whether it re-cleans each room twice was not observed.
-- `deepClean`/`alongWall` state fields exist, but no command was found/tested to set them; `autoBoost`/`mute` likewise.
-- Statistics (`21009`), path (`21011`), map image (`21014`/`20002`) get no reply locally; map geometry is app-only.
-- `sensors` consumable life limit unknown (filter/brushes: 200 h).
+> HACS needs access to the repository. A private repo works only if HACS' GitHub token can read it; the
+> simplest route is a public repo (nothing identifying is stored here).
 
-## Contents
-- `docs/PROTOCOL.md` — message reference, modes, fault codes, calibration, what was verified
-- `tools/` — standalone Python test harness (`repl.py`) + command builders. `pip install -r requirements.txt`,
-  copy `config.example.py` to `config.py` (mode 600), then `python repl.py`. Disable the HA integration first.
-- `ha-component/` — custom component `lenovo_t1` (YAML config, tinytuya). **Out of date, see `PORTING.md`.**
+## What you need
+
+| Field | Where it comes from |
+|---|---|
+| IP address | The vacuum's LAN address. Reserve it in your router. |
+| Device ID, local key | Tuya IoT platform (the device's `local_key`). |
+| Serial (`sn`) and user ID | Copy from any state report or app command (see `docs/PROTOCOL.md`). |
+
+These are stored in Home Assistant's config entry (`.storage`), not in this repo. **Never re-pair or
+factory-reset the vacuum:** that changes the local key. The Reconfigure option on the integration page
+updates the IP, key or protocol version later.
+
+## Entities
+
+**Vacuum:** start (total clean; resumes if paused), pause, return to dock, locate, fan speed
+(Low / Medium / High / Off). State, battery, fault and map status are attributes.
+
+**Room queue (10 slots).** Each room on the vacuum's saved map gets a switch named after the room
+(`switch.<name>_kitchen`). Slots beyond the rooms you have start **disabled**: enable one in
+Settings > Entities when you add a room in the app. Rename any of them in HA like a normal entity.
+
+- Turn rooms **on** to queue them. **The order you switch them on is the order they are cleaned.**
+- Press **Clean queued rooms** to start; the queue clears itself. **Clear room queue** empties it.
+- **Room queue** sensor shows the order, e.g. `Living Room, Front Hall`.
+- Each room switch has attributes `room_id`, `passes` (single/double) and `queue_position`.
+
+**Sensors:** battery, cleaned area (m²), cleaning time, fault (text, code in attributes), filter / side
+brush / main brush life remaining (hours), and a disabled-by-default raw mode sensor.
+**Controls:** volume (0-10), indicator light, find robot, reset filter / side brush / main brush life.
+
+## Service: `lenovo_t1.clean_rooms`
+
+For automations. Rooms are cleaned in the order listed; each item is a room number or a name (the name on
+the map, or the name you gave the room's switch):
+
+```yaml
+action: lenovo_t1.clean_rooms
+target:
+  entity_id: vacuum.lenovo_t1_pro
+data:
+  rooms: ["Kitchen", "Living Room"]
+```
+
+## Needs a saved map
+
+Room and total cleaning need a map saved in the vendor app (the vacuum ignores them without one).
+Map editing, room names and per-room double pass are still done in the app; HA reads them back. The
+integration re-reads the room list every five minutes.
+
+## Not applicable / not done
+
+- This model has no mop, water tank or emptiable dock, so none of those entities exist.
+- Schedules are left to Home Assistant; the two on-device schedules are not used.
+- Not done: side-brush fault (`-2402`) is decoded but untested; per-room passes are read-only; the
+  map image and statistics get no local reply.
+
+## Development
+
+```
+python3.13 -m venv .venv && . .venv/bin/activate
+pip install pytest-homeassistant-custom-component tinytuya ruff
+ruff check . && pytest
+```
+
+- `custom_components/lenovo_t1/t1api/` is the Home Assistant-free client library (messages, state handling).
+  The integration and `tools/repl.py` both use it.
+- `tools/` is an interactive REPL for testing against the real vacuum without restarting Home Assistant.
+  Copy `tools/config.example.py` to `tools/config.py` (mode 600, git-ignored). Disable the HA integration
+  first so only one local connection is open.
+- `docs/PROTOCOL.md` documents every verified message, the fault codes and calibration data.
+- CI (`.github/workflows/validate.yml`) runs hassfest, HACS validation, ruff and the tests.

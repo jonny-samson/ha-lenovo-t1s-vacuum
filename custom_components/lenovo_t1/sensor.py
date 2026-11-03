@@ -1,0 +1,129 @@
+"""Sensors."""
+from __future__ import annotations
+
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+
+from . import T1ConfigEntry
+from .entity import T1Entity
+from .rooms import room_label
+
+CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush"}
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
+                            async_add_entities: AddConfigEntryEntitiesCallback) -> None:
+    async_add_entities([
+        T1Battery(entry), T1CleanArea(entry), T1CleanTime(entry), T1Fault(entry),
+        T1Mode(entry), T1RoomQueue(entry),
+        *[T1ConsumableLife(entry, k, v) for k, v in CONSUMABLES.items()],
+    ])
+
+
+class T1Battery(T1Entity, SensorEntity):
+    _attr_name = "Battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "battery")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.client.battery
+
+
+class T1CleanArea(T1Entity, SensorEntity):
+    _attr_name = "Cleaned area"
+    _attr_device_class = SensorDeviceClass.AREA
+    _attr_native_unit_of_measurement = UnitOfArea.SQUARE_METERS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "clean_area")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.client.state.get("cleanArea")
+
+
+class T1CleanTime(T1Entity, SensorEntity):
+    _attr_name = "Cleaning time"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_suggested_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "clean_time")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.client.state.get("cleanTime")
+
+
+class T1Fault(T1Entity, SensorEntity):
+    _attr_name = "Fault"
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "fault")
+
+    @property
+    def native_value(self) -> str:
+        return self.client.fault_text
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"code": self.client.fault, "last_message_code": self.client.last_message}
+
+
+class T1Mode(T1Entity, SensorEntity):
+    _attr_name = "Mode"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "mode")
+
+    @property
+    def native_value(self) -> str | None:
+        return self.client.mode
+
+
+class T1ConsumableLife(T1Entity, SensorEntity):
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry, field: str, label: str) -> None:
+        super().__init__(entry, f"life_{field}")
+        self._field = field
+        self._attr_name = f"{label} life remaining"
+
+    @property
+    def native_value(self) -> float | None:
+        return self.client.consumable_hours(self._field)
+
+
+class T1RoomQueue(T1Entity, SensorEntity):
+    _attr_name = "Room queue"
+    _attr_icon = "mdi:format-list-numbered"
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "room_queue")
+
+    @property
+    def native_value(self) -> str:
+        ids = self.queue.ids
+        if not ids:
+            return "empty"
+        return ", ".join(room_label(self.client.room(i), i) for i in ids)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"room_ids": self.queue.ids}

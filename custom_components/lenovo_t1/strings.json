@@ -1,0 +1,59 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lenovo T1 Pro vacuum",
+        "description": "Local control over your network. Do not re-pair or factory reset the vacuum, that changes the local key.",
+        "data": {
+          "host": "IP address",
+          "name": "Name",
+          "device_id": "Device ID",
+          "local_key": "Local key",
+          "serial": "Serial number (sn)",
+          "user_id": "User ID",
+          "version": "Protocol version"
+        },
+        "data_description": {
+          "host": "Give the vacuum a fixed IP or DHCP reservation.",
+          "serial": "The sn value from any state report or app command.",
+          "user_id": "The userId value from any app command."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure the vacuum",
+        "data": {
+          "host": "IP address",
+          "local_key": "Local key",
+          "serial": "Serial number (sn)",
+          "user_id": "User ID",
+          "version": "Protocol version"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect. Check the IP address and that nothing else (the app is fine when idle) is holding the connection.",
+      "no_response": "Connected, but the vacuum did not answer. Check the local key, serial number and user ID."
+    },
+    "abort": {
+      "already_configured": "This vacuum is already configured.",
+      "reconfigure_successful": "Settings updated."
+    }
+  },
+  "exceptions": {
+    "unknown_room": {"message": "Room \"{room}\" is not on the vacuum's saved map."},
+    "queue_empty": {"message": "No rooms are queued. Turn on the room switches first."},
+    "cannot_clean": {"message": "Cannot start the clean: {reason}"}
+  },
+  "services": {
+    "clean_rooms": {
+      "name": "Clean rooms",
+      "description": "Clean the listed rooms in order.",
+      "fields": {
+        "rooms": {
+          "name": "Rooms",
+          "description": "Room numbers or names, in the order to clean them."
+        }
+      }
+    }
+  }
+}

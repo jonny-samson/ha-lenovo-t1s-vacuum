@@ -1,9 +1,0 @@
-{
-  "domain": "lenovo_t1",
-  "name": "Lenovo T1 Pro Vacuum (local Tuya)",
-  "codeowners": [],
-  "documentation": "https://example.invalid/lenovo_t1",
-  "iot_class": "local_push",
-  "requirements": ["tinytuya>=1.17.0"],
-  "version": "0.1.0"
-}

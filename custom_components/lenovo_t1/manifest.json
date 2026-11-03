@@ -1,0 +1,12 @@
+{
+  "domain": "lenovo_t1",
+  "name": "Lenovo T1 Pro Vacuum",
+  "codeowners": ["@jonny-samson"],
+  "config_flow": true,
+  "documentation": "https://github.com/jonny-samson/ha-lenovo-t1s-vacuum",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/jonny-samson/ha-lenovo-t1s-vacuum/issues",
+  "requirements": ["tinytuya>=1.17.0"],
+  "version": "0.2.0"
+}
