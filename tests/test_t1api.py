@@ -84,7 +84,8 @@ def test_state_and_activity(client):
     assert client.activity == "cleaning" and client.battery == 70
     assert client.volume == 4 and client.light is False and client.fan_speed == "High"
     for mode, act in [("pause", "paused"), ("findchargerpause", "paused"), ("backcharge", "returning"),
-                      ("charge", "docked"), ("idle", "idle"), ("fault", "error"), ("rfctrl", "cleaning")]:
+                      ("charge", "docked"), ("fullcharge", "docked"), ("idle", "idle"), ("fault", "error"),
+                      ("rfctrl", "cleaning")]:
         client.handle_payload({"infoType": 20001, "data": {"mode": mode}})
         assert client.activity == act
 

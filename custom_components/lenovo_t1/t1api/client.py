@@ -48,6 +48,7 @@ ACTIVITY = {
     "findchargerpause": "paused",
     "backcharge": "returning",
     "charge": "docked",
+    "fullcharge": "docked",  # on the dock at 100%
     "idle": "idle",
     "fault": "error",
 }
