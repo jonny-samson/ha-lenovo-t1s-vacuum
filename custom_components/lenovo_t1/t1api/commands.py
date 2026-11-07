@@ -13,6 +13,8 @@ from .const import (
     INFOTYPE_DEVICE_STATUS,
     INFOTYPE_GET_AREA,
     INFOTYPE_GET_CONSUMABLE,
+    INFOTYPE_GET_VERSION,
+    INFOTYPE_GET_WIFI,
     INFOTYPE_SET_AREA_SWEEP,
     INFOTYPE_SET_CONSUMABLE,
     INFOTYPE_SET_PAUSE,
@@ -43,6 +45,12 @@ class Commands:
     def query_rooms(self) -> dict:
         return self._e.build(INFOTYPE_GET_AREA)
 
+    def query_wifi(self) -> dict:
+        return self._e.build(INFOTYPE_GET_WIFI)
+
+    def query_version(self) -> dict:
+        return self._e.build(INFOTYPE_GET_VERSION)
+
     # ---- simple controls ----
     def locate_start(self) -> dict:
         return self._e.build(INFOTYPE_CONTROL, connection_type=0, ctrlCode=CTRL_FIND_ROBOT_START)
@@ -60,6 +68,9 @@ class Commands:
 
     def resume(self) -> dict:
         return self._e.build(INFOTYPE_SET_PAUSE, cmd="continue")
+
+    def stop_clean(self) -> dict:
+        return self._e.build(INFOTYPE_SET_PAUSE, cmd="stop")
 
     def dock(self) -> dict:
         return self._e.build(INFOTYPE_SET_ROBOT_TO_CHARGE, cmd="start")

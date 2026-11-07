@@ -16,3 +16,7 @@ ROOM_SLOTS = 10
 
 SERVICE_CLEAN_ROOMS = "clean_rooms"
 ATTR_ROOMS = "rooms"
+
+SERVICE_DRIVE = "drive"
+ATTR_DIRECTION = "direction"
+ATTR_DURATION = "duration"

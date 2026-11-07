@@ -31,7 +31,7 @@ Message envelope (hex-encoded JSON on Tuya DP 102):
 | 21015 | GET_CONSUMABLE | |
 | 21016 | SET_CONSUMABLE | data: filter, sideBrush, mainBrush, sensors (ints) |
 | 21017 | SET_PAUSE | cmd "pause" / "continue" / "stop" |
-| 21018 / 21019 | GET_VERSION / GET_WIFI_INFORMATION | |
+| 21018 / 21019 | GET_VERSION / GET_WIFI_INFORMATION | replies: version, fullversion, mcu / staId (SSID), staSignal (0-100, not dBm), staIp, staMac |
 | 21020 | CONTROL | data.ctrlCode (see below) |
 | 21021 | UPDATA | |
 | 21022 | SET_WIND_POWER | cmd quiet / auto / strong / mop |

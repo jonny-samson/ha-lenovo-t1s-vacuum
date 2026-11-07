@@ -9,7 +9,7 @@ from . import T1ConfigEntry
 from .const import CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_SERIAL, CONF_USER_ID
 
 TO_REDACT = {CONF_HOST, CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_SERIAL, CONF_USER_ID,
-             "mapId", "map_id", "sn", "userId", "unique_id"}
+             "mapId", "map_id", "sn", "userId", "unique_id", "staId", "staIp", "staMac"}
 
 
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: T1ConfigEntry) -> dict:
@@ -21,6 +21,8 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: T1Confi
         "map_id": client.map_id,
         "rooms": client.rooms,
         "consumables": client.consumables,
+        "wifi": client.wifi,
+        "firmware": client.firmware,
         "fault": client.fault,
         "queue": entry.runtime_data.queue.ids,
     }, TO_REDACT)

@@ -12,13 +12,22 @@ from . import T1ConfigEntry
 from .const import DOMAIN
 from .entity import T1Entity
 
-CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush"}
+CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush", "sensors": "Sensors"}
+
+# key, name, direction, icon
+DRIVE_BUTTONS = (
+    ("drive_forward", "Drive forward", "forward", "mdi:arrow-up-bold"),
+    ("drive_back", "Drive back", "back", "mdi:arrow-down-bold"),
+    ("turn_left", "Turn left", "left", "mdi:arrow-top-left-bold-outline"),
+    ("turn_right", "Turn right", "right", "mdi:arrow-top-right-bold-outline"),
+)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     async_add_entities([
-        T1Locate(entry), T1CleanQueue(entry), T1ClearQueue(entry),
+        T1Locate(entry), T1CancelDock(entry), T1CleanQueue(entry), T1ClearQueue(entry),
+        *[T1Drive(entry, *b) for b in DRIVE_BUTTONS],
         *[T1ResetConsumable(entry, k, v) for k, v in CONSUMABLES.items()],
     ])
 
@@ -31,6 +40,30 @@ class T1Locate(T1Entity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.hass.async_add_executor_job(self.client.locate)
+
+
+class T1CancelDock(T1Entity, ButtonEntity):
+    _attr_name = "Cancel dock"
+    _attr_icon = "mdi:home-remove"
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "cancel_dock")
+
+    async def async_press(self) -> None:
+        await self.hass.async_add_executor_job(self.client.cancel_dock)
+
+
+class T1Drive(T1Entity, ButtonEntity):
+    """One manual-control burst (about 1.5 s of driving or turning)."""
+
+    def __init__(self, entry: T1ConfigEntry, key: str, name: str, direction: str, icon: str) -> None:
+        super().__init__(entry, key)
+        self._direction = direction
+        self._attr_name = name
+        self._attr_icon = icon
+
+    async def async_press(self) -> None:
+        await self.hass.async_add_executor_job(self.client.drive, self._direction)
 
 
 class T1CleanQueue(T1Entity, ButtonEntity):

@@ -25,8 +25,9 @@ updates the IP, key or protocol version later.
 
 ## Entities
 
-**Vacuum:** start (total clean; resumes if paused), pause, return to dock, locate, fan speed
+**Vacuum:** start (total clean; resumes if paused), pause, stop, return to dock, locate, fan speed
 (Low / Medium / High / Off). State, battery, fault and map status are attributes.
+Stop is sent as `21017 stop` and has not been verified on the real device.
 
 **Room queue (10 slots).** Each room on the vacuum's saved map gets a switch named after the room
 (`switch.<name>_kitchen`). Slots beyond the rooms you have start **disabled**: enable one in
@@ -37,9 +38,22 @@ Settings > Entities when you add a room in the app. Rename any of them in HA lik
 - **Room queue** sensor shows the order, e.g. `Living Room, Front Hall`.
 - Each room switch has attributes `room_id`, `passes` (single/double) and `queue_position`.
 
-**Sensors:** battery, cleaned area (m²), cleaning time, fault (text, code in attributes), filter / side
-brush / main brush life remaining (hours), and a disabled-by-default raw mode sensor.
-**Controls:** volume (0-10), indicator light, find robot, reset filter / side brush / main brush life.
+**Manual control.** Buttons **Drive forward**, **Drive back**, **Turn left**, **Turn right** each send a
+short burst (about 1.5 s: roughly 7.5 cm forward or 11 degrees per step, after a moment to start). Press
+again to continue. **Cancel dock** stops a return-to-dock trip. Stay nearby: the vacuum does not avoid
+obstacles any differently than in the app. See `lenovo_t1.drive` for longer moves.
+
+**Sensors:** battery, cleaned area (m²) and cleaning time (whole minutes; both keep the last clean's value
+until the next one starts), **Fault** (text, code in attributes) and a **Problem** binary sensor that is on
+whenever there is a fault, and filter / side brush / main brush / sensors life remaining (hours of 200).
+**Diagnostics:** Wi-Fi network, Wi-Fi signal (0-100 quality as the vacuum reports it, not dBm), firmware
+version (with the full version and MCU as attributes), and IP and MAC address (disabled by default). The
+raw **Mode** sensor is disabled by default.
+**Controls:** volume (0-10), indicator light, find robot, and reset buttons for the filter, side brush, main
+brush and sensors life.
+
+State, rooms, consumables, Wi-Fi and firmware refresh on their own (every 30 s, 5 min, 10 min, 5 min and
+5 min), so there are no manual refresh buttons.
 
 ## Service: `lenovo_t1.clean_rooms`
 
@@ -52,6 +66,20 @@ target:
   entity_id: vacuum.lenovo_t1_pro
 data:
   rooms: ["Kitchen", "Living Room"]
+```
+
+## Service: `lenovo_t1.drive`
+
+Manual control from an automation or dashboard. `direction` is `forward`, `back`, `left` or `right`;
+`duration` is optional (seconds, default 1.5, maximum 10).
+
+```yaml
+action: lenovo_t1.drive
+target:
+  entity_id: vacuum.lenovo_t1_pro
+data:
+  direction: left
+  duration: 3
 ```
 
 ## Needs a saved map

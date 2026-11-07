@@ -13,6 +13,8 @@ INFOTYPE_SET_ROBOT_TO_CHARGE = 21012  # dock: cmd "start" / "stop"
 INFOTYPE_GET_CONSUMABLE = 21015  # read filter/sideBrush/mainBrush/sensors
 INFOTYPE_SET_CONSUMABLE = 21016  # write ints: filter, sideBrush, mainBrush, sensors
 INFOTYPE_SET_PAUSE = 21017  # cmd "pause" / "continue" / "stop"
+INFOTYPE_GET_VERSION = 21018  # reply: version, fullversion, mcu
+INFOTYPE_GET_WIFI = 21019  # reply: staId (SSID), staSignal (0-100), staIp, staMac
 INFOTYPE_CONTROL = 21020  # data.ctrlCode (see CTRL_* below)
 INFOTYPE_SET_WIND_POWER = 21022  # cmd quiet / auto / strong / mop
 INFOTYPE_ACTIVATE_AREA = 21023  # room/zone selection: mapId, cleanId[], extraAreas[]
@@ -33,6 +35,14 @@ CTRL_FIND_ROBOT_START = 3010
 CTRL_FIND_ROBOT_STOP = 3011
 CTRL_CLEAR_DATA = 3012
 CTRL_SIG_SET_SPEED = 3013
+
+# Remote-control directions -> ctrlCode (verified live, see docs/PROTOCOL.md).
+DRIVE_CODES = {
+    "forward": CTRL_FORWARD,
+    "back": CTRL_BACK,
+    "left": CTRL_TURN_LEFT,
+    "right": CTRL_TURN_RIGHT,
+}
 
 # ---- cleaning modes for INFOTYPE_SET_AREA_SWEEP (CONFIRMED) ----
 CLEAN_MODE_TOTAL = "totalClean"

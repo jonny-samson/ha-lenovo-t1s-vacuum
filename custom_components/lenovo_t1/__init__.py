@@ -25,7 +25,8 @@ from .t1api import T1Client
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.SWITCH, Platform.BUTTON, Platform.NUMBER]
+PLATFORMS = [Platform.VACUUM, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SWITCH, Platform.BUTTON,
+             Platform.NUMBER]
 FIRST_DATA_TIMEOUT = 10
 
 

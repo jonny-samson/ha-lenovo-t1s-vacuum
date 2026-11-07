@@ -1,4 +1,5 @@
 import pytest
+import voluptuous as vol
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
@@ -145,5 +146,86 @@ async def test_diagnostics_redacts(hass, hass_client, fake_client):
     entry, client = await _setup(hass, fake_client)
     diag = await async_get_config_entry_diagnostics(hass, entry)
     blob = str(diag)
-    for secret in ("192.0.2.10", "dev123", "kkkkkkkkkkkkkkkk", "SN1", "UID1"):
+    for secret in ("192.0.2.10", "dev123", "kkkkkkkkkkkkkkkk", "SN1", "UID1", "HomeNet", "aa:bb:cc:dd:ee:ff"):
         assert secret not in blob
+
+
+async def test_manual_control_buttons(hass, fake_client):
+    from custom_components.lenovo_t1.t1api.client import DriveBurst
+    entry, client = await _setup(hass, fake_client)
+    client.sent()
+    for name, code in (("drive_forward", 3005), ("drive_back", 3006), ("turn_left", 3007), ("turn_right", 3008)):
+        await hass.services.async_call("button", "press",
+                                       {"entity_id": f"button.lenovo_t1_pro_{name}"}, blocking=True)
+        assert client._cmds.get_nowait() == DriveBurst(code, 6)
+
+
+async def test_drive_service(hass, fake_client):
+    from custom_components.lenovo_t1.t1api.client import DriveBurst
+    entry, client = await _setup(hass, fake_client)
+    client.sent()
+    await hass.services.async_call(DOMAIN, "drive", {"entity_id": "vacuum.lenovo_t1_pro",
+                                                     "direction": "left", "duration": 2}, blocking=True)
+    assert client._cmds.get_nowait() == DriveBurst(3007, 8)
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(DOMAIN, "drive", {"entity_id": "vacuum.lenovo_t1_pro",
+                                                         "direction": "sideways"}, blocking=True)
+
+
+async def test_cancel_dock_button_and_vacuum_stop(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.sent()
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.lenovo_t1_pro_cancel_dock"}, blocking=True)
+    m = client.sent()[0]
+    assert m["infoType"] == 21012 and m["data"]["cmd"] == "stop"
+    await hass.services.async_call("vacuum", "stop", {"entity_id": "vacuum.lenovo_t1_pro"}, blocking=True)
+    m = client.sent()[0]
+    assert m["infoType"] == 21017 and m["data"]["cmd"] == "stop"
+
+
+async def test_wifi_and_firmware_sensors(hass, fake_client):
+    await _setup(hass, fake_client)
+    assert hass.states.get("sensor.lenovo_t1_pro_wi_fi_network").state == "HomeNet"
+    sig = hass.states.get("sensor.lenovo_t1_pro_wi_fi_signal")
+    assert sig.state == "72" and "device_class" not in sig.attributes
+    fw = hass.states.get("sensor.lenovo_t1_pro_firmware_version")
+    assert fw.state == "0.3.6" and fw.attributes["mcu"] == "1.2"
+    reg = er.async_get(hass)
+    for key in ("wifi_ip", "wifi_mac"):  # identifiers stay off unless wanted
+        assert reg.async_get(_eid(hass, "sensor", key)).disabled_by is not None
+
+
+async def test_sensors_consumable_and_reset(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    assert float(hass.states.get("sensor.lenovo_t1_pro_sensors_life_remaining").state) == 200.0
+    client.sent()
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.lenovo_t1_pro_reset_sensors_life"}, blocking=True)
+    msg = [m for m in client.sent() if m["infoType"] == 21016][0]
+    assert msg["data"]["sensors"] == 0 and msg["data"]["filter"] == 144000
+
+
+async def test_problem_sensor(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    assert hass.states.get("binary_sensor.lenovo_t1_pro_problem").state == "off"
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": -2406}, "type": "error"}})
+    await hass.async_block_till_done()
+    s = hass.states.get("binary_sensor.lenovo_t1_pro_problem")
+    assert s.state == "on" and s.attributes["fault"] == "dust box missing"
+    assert s.attributes["device_class"] == "problem"
+
+
+async def test_mode_sensor_disabled_by_default(hass, fake_client):
+    await _setup(hass, fake_client)
+    assert er.async_get(hass).async_get(_eid(hass, "sensor", "mode")).disabled_by is not None
+
+
+async def test_area_and_time_round_and_hold(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.handle_payload({"infoType": 20001, "data": {"mode": "sweep", "cleanArea": 11, "cleanTime": 1785}})
+    client.handle_payload({"infoType": 20001, "data": {"mode": "charge", "cleanArea": 0, "cleanTime": 0}})
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.lenovo_t1_pro_cleaned_area").state == "11"
+    s = hass.states.get("sensor.lenovo_t1_pro_cleaning_time")
+    assert s.state == "30" and s.attributes["unit_of_measurement"] == "min"

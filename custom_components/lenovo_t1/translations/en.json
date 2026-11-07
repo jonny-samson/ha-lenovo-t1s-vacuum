@@ -40,9 +40,15 @@
     }
   },
   "exceptions": {
-    "unknown_room": {"message": "Room \"{room}\" is not on the vacuum's saved map."},
-    "queue_empty": {"message": "No rooms are queued. Turn on the room switches first."},
-    "cannot_clean": {"message": "Cannot start the clean: {reason}"}
+    "unknown_room": {
+      "message": "Room \"{room}\" is not on the vacuum's saved map."
+    },
+    "queue_empty": {
+      "message": "No rooms are queued. Turn on the room switches first."
+    },
+    "cannot_clean": {
+      "message": "Cannot start the clean: {reason}"
+    }
   },
   "services": {
     "clean_rooms": {
@@ -53,6 +59,30 @@
           "name": "Rooms",
           "description": "Room numbers or names, in the order to clean them."
         }
+      }
+    },
+    "drive": {
+      "name": "Drive",
+      "description": "Move or turn the vacuum by remote control. It moves in short steps, about 7.5 cm forward or 11 degrees per step, and needs a moment to start. Stay nearby.",
+      "fields": {
+        "direction": {
+          "name": "Direction",
+          "description": "Which way to move."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Seconds to keep moving (default 1.5, maximum 10)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "direction": {
+      "options": {
+        "forward": "Forward",
+        "back": "Back",
+        "left": "Turn left",
+        "right": "Turn right"
       }
     }
   }

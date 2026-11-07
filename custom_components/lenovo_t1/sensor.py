@@ -10,14 +10,18 @@ from . import T1ConfigEntry
 from .entity import T1Entity
 from .rooms import room_label
 
-CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush"}
+CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush", "sensors": "Sensors"}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     async_add_entities([
         T1Battery(entry), T1CleanArea(entry), T1CleanTime(entry), T1Fault(entry),
-        T1Mode(entry), T1RoomQueue(entry),
+        T1Mode(entry), T1RoomQueue(entry), T1Firmware(entry),
+        T1Info(entry, "wifi_ssid", "Wi-Fi network", "wifi", "staId", "mdi:wifi"),
+        T1WifiSignal(entry),
+        T1Info(entry, "wifi_ip", "IP address", "wifi", "staIp", "mdi:ip-network", enabled=False),
+        T1Info(entry, "wifi_mac", "MAC address", "wifi", "staMac", "mdi:network", enabled=False),
         *[T1ConsumableLife(entry, k, v) for k, v in CONSUMABLES.items()],
     ])
 
@@ -46,15 +50,14 @@ class T1CleanArea(T1Entity, SensorEntity):
         super().__init__(entry, "clean_area")
 
     @property
-    def native_value(self) -> int | None:
-        return self.client.state.get("cleanArea")
+    def native_value(self) -> int | float | None:
+        return self.client.clean_area
 
 
 class T1CleanTime(T1Entity, SensorEntity):
     _attr_name = "Cleaning time"
     _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
-    _attr_suggested_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
     _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, entry: T1ConfigEntry) -> None:
@@ -62,7 +65,8 @@ class T1CleanTime(T1Entity, SensorEntity):
 
     @property
     def native_value(self) -> int | None:
-        return self.client.state.get("cleanTime")
+        seconds = self.client.clean_time
+        return None if seconds is None else round(seconds / 60)
 
 
 class T1Fault(T1Entity, SensorEntity):
@@ -92,6 +96,63 @@ class T1Mode(T1Entity, SensorEntity):
     @property
     def native_value(self) -> str | None:
         return self.client.mode
+
+
+class T1Info(T1Entity, SensorEntity):
+    """A text field from the Wi-Fi reply (21019)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry, key: str, name: str, source: str, field: str,
+                 icon: str, enabled: bool = True) -> None:
+        super().__init__(entry, key)
+        self._source, self._field = source, field
+        self._attr_name = name
+        self._attr_icon = icon
+        self._attr_entity_registry_enabled_default = enabled
+
+    @property
+    def native_value(self) -> str | None:
+        value = getattr(self.client, self._source).get(self._field)
+        return None if value in (None, "") else str(value)
+
+
+class T1WifiSignal(T1Entity, SensorEntity):
+    """Signal quality 0-100 as reported by the vacuum; it is not dBm."""
+
+    _attr_name = "Wi-Fi signal"
+    _attr_icon = "mdi:wifi-strength-3"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "wifi_signal")
+
+    @property
+    def native_value(self) -> int | None:
+        try:
+            return int(self.client.wifi["staSignal"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+class T1Firmware(T1Entity, SensorEntity):
+    _attr_name = "Firmware version"
+    _attr_icon = "mdi:chip"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "firmware")
+
+    @property
+    def native_value(self) -> str | None:
+        version = self.client.firmware.get("version")
+        return None if version in (None, "") else str(version)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {k: self.client.firmware.get(k) for k in ("fullversion", "mcu")}
 
 
 class T1ConsumableLife(T1Entity, SensorEntity):

@@ -10,6 +10,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from typing import NamedTuple
 
 import tinytuya
 
@@ -18,10 +19,13 @@ from .commands import FAN_MODES_REV, Commands
 from .const import (
     CONSUMABLE_KEYS,
     CONSUMABLE_LIFE_SECONDS,
+    DRIVE_CODES,
     FAULT_CODES,
     INFOTYPE_DEVICE_STATUS,
     INFOTYPE_GET_AREA,
     INFOTYPE_GET_CONSUMABLE,
+    INFOTYPE_GET_VERSION,
+    INFOTYPE_GET_WIFI,
     INFOTYPE_NOTIFICATION,
     MAP_ID_NONE,
 )
@@ -33,8 +37,14 @@ MIN_BACKOFF = 5
 MAX_BACKOFF = 60
 RECV_TIMEOUT = 2  # seconds receive() blocks when idle
 STATE_POLL = 30  # bare 20001 when nothing has been reported for this long
-ROOMS_POLL = 300
+ROOMS_POLL = 300  # also used for the Wi-Fi and firmware queries
 CONSUMABLES_POLL = 600
+# After connecting, the slow queries are spread out instead of fired back to back
+# (a burst of 21015 with 20001/21020 once made the device drop the connection).
+STARTUP_STAGGER = {"rooms": 2, "consumables": 4, "wifi": 6, "version": 8}
+DRIVE_INTERVAL = 0.25  # seconds between remote-control messages
+DRIVE_DEFAULT_COUNT = 6  # ~3 are needed before the vacuum moves
+DRIVE_MAX_SECONDS = 10
 STALE_AFTER = 120  # no report at all for this long => treat as unavailable
 
 # 20001 keys that change constantly while moving and are not worth a state write.
@@ -53,6 +63,15 @@ ACTIVITY = {
     "fault": "error",
 }
 
+WIFI_KEYS = ("staId", "staSignal", "staIp", "staMac")
+FIRMWARE_KEYS = ("version", "fullversion", "mcu")
+
+
+class DriveBurst(NamedTuple):
+    """Queue item: repeat one remote-control code `count` times, DRIVE_INTERVAL apart."""
+    ctrl_code: int
+    count: int
+
 
 class T1Client:
     def __init__(self, host: str, device_id: str, local_key: str, serial: str,
@@ -70,6 +89,10 @@ class T1Client:
         self.rooms: list[dict] = []
         self.map_id: int = MAP_ID_NONE
         self.consumables: dict = {}
+        self.wifi: dict = {}
+        self.firmware: dict = {}
+        self._last_area: int | float | None = None
+        self._last_time: int | float | None = None
         self.fault: int = 0
         self.last_message: int | None = None  # last 20003 type=message code
         self._seen_state = False
@@ -107,6 +130,17 @@ class T1Client:
     @property
     def activity(self) -> str:
         return ACTIVITY.get(self.mode, "idle")
+
+    @property
+    def clean_area(self) -> int | float | None:
+        """Area of the current clean, or of the last one while the vacuum is idle
+        (the device reports 0 between cleans)."""
+        return self._last_area if self._last_area is not None else self.state.get("cleanArea")
+
+    @property
+    def clean_time(self) -> int | float | None:
+        """Seconds of the current or last clean, see clean_area."""
+        return self._last_time if self._last_time is not None else self.state.get("cleanTime")
 
     @property
     def battery(self) -> int | None:
@@ -149,9 +183,8 @@ class T1Client:
         self._cmds.put(msg)
 
     def refresh(self) -> None:
+        """Ask for the state; the loop follows up with the slower queries."""
         self.send(self.commands.query_state())
-        self.send(self.commands.query_rooms())
-        self.send(self.commands.query_consumables())
 
     def start_clean(self) -> None:
         self.send(self.commands.start_clean(self._require_map()))
@@ -173,8 +206,23 @@ class T1Client:
     def resume(self) -> None:
         self.send(self.commands.resume())
 
+    def stop_clean(self) -> None:
+        self.send(self.commands.stop_clean())
+
     def dock(self) -> None:
         self.send(self.commands.dock())
+
+    def cancel_dock(self) -> None:
+        self.send(self.commands.dock_cancel())
+
+    def drive(self, direction: str, duration: float | None = None) -> None:
+        """Move in short steps: ~7.5 cm forward or ~11 degrees per message after start-up.
+        `duration` (seconds, default about 1.5) sets how many messages are sent."""
+        if direction not in DRIVE_CODES:
+            raise ValueError(f"unknown direction: {direction}")
+        count = DRIVE_DEFAULT_COUNT if duration is None else round(float(duration) / DRIVE_INTERVAL)
+        count = max(1, min(count, int(DRIVE_MAX_SECONDS / DRIVE_INTERVAL)))
+        self.send(DriveBurst(DRIVE_CODES[direction], count))
 
     def locate(self) -> None:
         self.send(self.commands.locate_start())
@@ -230,11 +278,19 @@ class T1Client:
             backoff = min(backoff * 2, MAX_BACKOFF)
 
     def _loop(self, d: tinytuya.Device) -> None:
-        hb = rooms_at = cons_at = state_at = time.time()
+        now = time.time()
+        hb = state_at = now
+        rooms_at = now - ROOMS_POLL + STARTUP_STAGGER["rooms"]
+        cons_at = now - CONSUMABLES_POLL + STARTUP_STAGGER["consumables"]
+        wifi_at = now - ROOMS_POLL + STARTUP_STAGGER["wifi"]
+        version_at = now - ROOMS_POLL + STARTUP_STAGGER["version"]
         while not self._stop.is_set():
             try:
-                msg = self._cmds.get(timeout=0.2)
-                d.set_value(protocol.DP_RAW, protocol.encode(msg), nowait=True)
+                item = self._cmds.get(timeout=0.2)
+                if isinstance(item, DriveBurst):
+                    self._drive(d, item)
+                else:
+                    d.set_value(protocol.DP_RAW, protocol.encode(item), nowait=True)
             except queue.Empty:
                 pass
             now = time.time()
@@ -250,11 +306,25 @@ class T1Client:
             if now - cons_at > CONSUMABLES_POLL:
                 self.send(self.commands.query_consumables())
                 cons_at = now
+            if now - wifi_at > ROOMS_POLL:
+                self.send(self.commands.query_wifi())
+                wifi_at = now
+            if now - version_at > ROOMS_POLL:
+                self.send(self.commands.query_version())
+                version_at = now
             resp = d.receive()
             if resp and resp.get("Err") in ("901", "904", "905", "914"):
                 raise ConnectionError(resp.get("Error"))
             if resp:
                 self._handle(resp)
+
+    def _drive(self, d: tinytuya.Device, burst: DriveBurst) -> None:
+        for _ in range(burst.count):
+            if self._stop.is_set():
+                return
+            msg = self.commands.drive(burst.ctrl_code)
+            d.set_value(protocol.DP_RAW, protocol.encode(msg), nowait=True)
+            self._stop.wait(DRIVE_INTERVAL)
 
     # ---- incoming ----
     def _handle(self, resp: dict) -> None:
@@ -279,6 +349,7 @@ class T1Client:
             new = {k: v for k, v in data.items() if k not in _NOISY_KEYS and k not in ("sn", "userId")}
             before = dict(self.state)
             self.state.update(new)
+            self._remember_clean(new)
             changed = self.state != before or not self._seen_state
             self._seen_state = True
             if isinstance(data.get("mapId"), int):
@@ -294,6 +365,16 @@ class T1Client:
             new = {k: data[k] for k in CONSUMABLE_KEYS if isinstance(data.get(k), int)}
             changed = new != {k: self.consumables.get(k) for k in new}
             self.consumables.update(new)
+        elif info_type == INFOTYPE_GET_WIFI:
+            self.last_report = time.time()
+            new = {k: data[k] for k in WIFI_KEYS if k in data}
+            changed = new != {k: self.wifi.get(k) for k in new}
+            self.wifi.update(new)
+        elif info_type == INFOTYPE_GET_VERSION:
+            self.last_report = time.time()
+            new = {k: data[k] for k in FIRMWARE_KEYS if k in data}
+            changed = new != {k: self.firmware.get(k) for k in new}
+            self.firmware.update(new)
         elif info_type == INFOTYPE_NOTIFICATION:
             code = (data.get("msg") or {}).get("code", 0)
             if data.get("type") == "error":
@@ -304,3 +385,11 @@ class T1Client:
                 changed = True
         if changed:
             self._notify()
+
+    def _remember_clean(self, new: dict) -> None:
+        """Keep the last non-zero area/time; a fresh clean (mode sweep) may start from 0."""
+        starting = self.state.get("mode") == "sweep"
+        for key, attr in (("cleanArea", "_last_area"), ("cleanTime", "_last_time")):
+            value = new.get(key)
+            if isinstance(value, (int, float)) and (value > 0 or starting):
+                setattr(self, attr, value)

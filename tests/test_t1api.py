@@ -1,6 +1,7 @@
 """Tests for the HA-free library: message formats and state handling."""
 import pytest
 from t1api import FAN_MODES, T1Client
+from t1api.client import DriveBurst
 from t1api.commands import Commands
 from t1api.protocol import Envelope, decode, encode
 
@@ -134,3 +135,60 @@ def test_consumable_hours(client):
     client.handle_payload({"infoType": 21015, "data": {**CONSUMABLES, "battery": 1}})
     assert client.consumable_hours("filter") == round((720000 - 100000) / 3600, 1)
     assert client.consumable_hours("nope") is None
+
+
+def test_drive_commands(cmds):
+    from t1api import DRIVE_CODES
+    assert DRIVE_CODES == {"forward": 3005, "back": 3006, "left": 3007, "right": 3008}
+    msg = cmds.drive(3007)
+    assert msg["infoType"] == 21020 and msg["data"]["ctrlCode"] == 3007 and msg["connectionType"] == 0
+
+
+def test_drive_burst_queued_and_clamped(client):
+    client.drive("forward")
+    assert client._cmds.get_nowait() == DriveBurst(3005, 6)
+    client.drive("left", 2)
+    assert client._cmds.get_nowait() == DriveBurst(3007, 8)
+    client.drive("right", 0.01)
+    assert client._cmds.get_nowait().count == 1
+    client.drive("back", 999)
+    assert client._cmds.get_nowait().count == 40
+    with pytest.raises(ValueError):
+        client.drive("up")
+
+
+def test_cancel_dock_and_stop_commands(cmds):
+    assert cmds.dock_cancel()["data"]["cmd"] == "stop" and cmds.dock_cancel()["infoType"] == 21012
+    assert cmds.stop_clean()["data"]["cmd"] == "stop" and cmds.stop_clean()["infoType"] == 21017
+
+
+def test_wifi_and_firmware_replies(client):
+    client.handle_payload({"infoType": 21019, "data": {"staId": "Net", "staSignal": 55, "staIp": "1.2.3.4",
+                                                       "staMac": "aa", "other": 1}})
+    assert client.wifi == {"staId": "Net", "staSignal": 55, "staIp": "1.2.3.4", "staMac": "aa"}
+    client.handle_payload({"infoType": 21018, "data": {"version": "0.3.6", "fullversion": "0.3.6.1", "mcu": "2"}})
+    assert client.firmware["version"] == "0.3.6" and client.firmware["mcu"] == "2"
+
+
+def test_queries_for_wifi_and_version(cmds):
+    assert cmds.query_wifi()["infoType"] == 21019
+    assert cmds.query_version()["infoType"] == 21018
+
+
+def test_connect_sends_only_the_state_query(client):
+    client.refresh()
+    assert [m["infoType"] for m in iter(lambda: client._cmds.get_nowait() if not client._cmds.empty() else None,
+                                        None)] == [20001]
+
+
+def test_last_clean_values_are_kept_between_cleans(client):
+    def report(**data):
+        client.handle_payload({"infoType": 20001, "data": data})
+    report(mode="charge", cleanArea=0, cleanTime=0)
+    assert client.clean_area == 0
+    report(mode="sweep", cleanArea=12, cleanTime=1785)
+    report(mode="backcharge", cleanArea=14, cleanTime=1900)
+    report(mode="charge", cleanArea=0, cleanTime=0)
+    assert client.clean_area == 14 and client.clean_time == 1900
+    report(mode="sweep", cleanArea=0, cleanTime=0)
+    assert client.clean_area == 0 and client.clean_time == 0

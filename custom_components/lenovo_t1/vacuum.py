@@ -10,10 +10,17 @@ from homeassistant.helpers import entity_platform
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import T1ConfigEntry
-from .const import ATTR_ROOMS, DOMAIN, SERVICE_CLEAN_ROOMS
+from .const import (
+    ATTR_DIRECTION,
+    ATTR_DURATION,
+    ATTR_ROOMS,
+    DOMAIN,
+    SERVICE_CLEAN_ROOMS,
+    SERVICE_DRIVE,
+)
 from .entity import T1Entity
 from .rooms import resolve_rooms
-from .t1api import FAN_MODES
+from .t1api import DRIVE_CODES, FAN_MODES
 
 _ACTIVITY = {
     "cleaning": VacuumActivity.CLEANING,
@@ -33,12 +40,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
         {vol.Required(ATTR_ROOMS): vol.All(cv.ensure_list, [vol.Any(vol.Coerce(int), cv.string)])},
         "async_clean_rooms",
     )
+    entity_platform.async_get_current_platform().async_register_entity_service(
+        SERVICE_DRIVE,
+        {
+            vol.Required(ATTR_DIRECTION): vol.In(list(DRIVE_CODES)),
+            vol.Optional(ATTR_DURATION): vol.All(vol.Coerce(float), vol.Range(min=0.25, max=10)),
+        },
+        "async_drive",
+    )
 
 
 class T1Vacuum(T1Entity, StateVacuumEntity):
     _attr_name = None
     _attr_supported_features = (
-        VacuumEntityFeature.START | VacuumEntityFeature.PAUSE | VacuumEntityFeature.RETURN_HOME
+        VacuumEntityFeature.START | VacuumEntityFeature.PAUSE | VacuumEntityFeature.STOP
+        | VacuumEntityFeature.RETURN_HOME
         | VacuumEntityFeature.FAN_SPEED | VacuumEntityFeature.LOCATE
         | getattr(VacuumEntityFeature, "STATE", 0))
     _attr_fan_speed_list = list(FAN_MODES)
@@ -72,6 +88,9 @@ class T1Vacuum(T1Entity, StateVacuumEntity):
     async def async_pause(self) -> None:
         await self.hass.async_add_executor_job(self.client.pause)
 
+    async def async_stop(self, **kwargs) -> None:
+        await self.hass.async_add_executor_job(self.client.stop_clean)
+
     async def async_return_to_base(self, **kwargs) -> None:
         await self.hass.async_add_executor_job(self.client.dock)
 
@@ -85,6 +104,10 @@ class T1Vacuum(T1Entity, StateVacuumEntity):
         """Clean the given rooms in order. Items are room numbers or names."""
         ids = resolve_rooms(self.hass, self._entry, rooms)
         await self._call(self.client.clean_rooms, ids)
+
+    async def async_drive(self, direction: str, duration: float | None = None) -> None:
+        """Manual control: move or turn for roughly `duration` seconds (default 1.5)."""
+        await self.hass.async_add_executor_job(self.client.drive, direction, duration)
 
     async def _call(self, func, *args) -> None:
         try:
