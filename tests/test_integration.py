@@ -229,3 +229,32 @@ async def test_area_and_time_round_and_hold(hass, fake_client):
     assert hass.states.get("sensor.lenovo_t1_pro_cleaned_area").state == "11"
     s = hass.states.get("sensor.lenovo_t1_pro_cleaning_time")
     assert s.state == "30" and s.attributes["unit_of_measurement"] == "min"
+
+
+async def test_mode_sensor_keeps_raw_state_and_translates_remote_control(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    reg = er.async_get(hass)
+    reg.async_update_entity(_eid(hass, "sensor", "mode"), disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = fake_client["client"]
+    eid = _eid(hass, "sensor", "mode")
+    client.handle_payload({"infoType": 20001, "data": {"mode": "rfctrl"}})
+    await hass.async_block_till_done()
+    s = hass.states.get(eid)
+    assert s.state == "rfctrl" and s.attributes["device_class"] == "enum"
+    client.handle_payload({"infoType": 20001, "data": {"mode": "somethingnew"}})
+    await hass.async_block_till_done()
+    s = hass.states.get(eid)
+    assert s.state == "unknown" and s.attributes["raw_mode"] == "somethingnew"
+
+
+def test_mode_translation_text():
+    import json
+    from pathlib import Path
+    base = Path(__file__).parent.parent / "custom_components" / "lenovo_t1"
+    from custom_components.lenovo_t1.sensor import MODES
+    for name in ("strings.json", "translations/en.json"):
+        states = json.loads((base / name).read_text())["entity"]["sensor"]["mode"]["state"]
+        assert states["rfctrl"] == "Remote control"
+        assert set(states) == set(MODES)

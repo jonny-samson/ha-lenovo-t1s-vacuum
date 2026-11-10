@@ -8,5 +8,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/jonny-samson/ha-lenovo-t1s-vacuum/issues",
   "requirements": ["tinytuya>=1.17.0"],
-  "version": "1.0.1"
+  "version": "1.0.2"
 }

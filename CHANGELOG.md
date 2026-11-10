@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+### Changed
+- The **Mode** sensor is now an enum sensor. Its state keeps the raw value (`rfctrl`, `sweep`, `charge`, ...) so
+  automations keep working, and `rfctrl` is shown as "Remote control" in the UI and logbook. Other modes read as
+  before. A mode the integration does not know shows as unknown, with the raw value in the `raw_mode` attribute.
+
 ## 1.0.1
 
 ### Added

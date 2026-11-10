@@ -9,7 +9,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import T1ConfigEntry
 from .entity import T1Entity
 from .rooms import room_label
+from .t1api.client import ACTIVITY
 
+MODES = list(ACTIVITY)
 CONSUMABLES = {"filter": "Filter", "sideBrush": "Side brush", "mainBrush": "Main brush", "sensors": "Sensors"}
 
 
@@ -86,7 +88,13 @@ class T1Fault(T1Entity, SensorEntity):
 
 
 class T1Mode(T1Entity, SensorEntity):
+    """The vacuum's own mode. The state keeps the raw value (so automations that match it keep
+    working); the translations give the display text, e.g. rfctrl -> "Remote control"."""
+
     _attr_name = "Mode"
+    _attr_translation_key = "mode"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = MODES
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
 
@@ -95,7 +103,12 @@ class T1Mode(T1Entity, SensorEntity):
 
     @property
     def native_value(self) -> str | None:
-        return self.client.mode
+        # An enum sensor cannot hold a value outside its options; unknown modes show in the attribute.
+        return self.client.mode if self.client.mode in MODES else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"raw_mode": self.client.mode}
 
 
 class T1Info(T1Entity, SensorEntity):
