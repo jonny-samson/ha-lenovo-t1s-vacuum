@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from .const import (
+    CLEAN_MODE_ALONG_WALL,
+    CLEAN_MODE_GIVEN_POINT,
     CLEAN_MODE_RE_APPOINT,
     CONSUMABLE_KEYS,
     CONSUMABLE_RESET_VALUE,
     CTRL_FIND_ROBOT_START,
     CTRL_FIND_ROBOT_STOP,
+    CTRL_SPOT,
     INFOTYPE_ACTIVATE_AREA,
     INFOTYPE_COMPOUND,
     INFOTYPE_CONTROL,
@@ -15,6 +18,7 @@ from .const import (
     INFOTYPE_GET_CONSUMABLE,
     INFOTYPE_GET_VERSION,
     INFOTYPE_GET_WIFI,
+    INFOTYPE_SET_AREA,
     INFOTYPE_SET_AREA_SWEEP,
     INFOTYPE_SET_CONSUMABLE,
     INFOTYPE_SET_PAUSE,
@@ -101,20 +105,56 @@ class Commands:
         payload[field] = CONSUMABLE_RESET_VALUE
         return self._e.build(INFOTYPE_SET_CONSUMABLE, **payload)
 
+    def spot_clean(self) -> dict:
+        """Clean around the current position (ctrlCode 3001, from the app, untested)."""
+        return self._e.build(INFOTYPE_CONTROL, connection_type=0, ctrlCode=CTRL_SPOT)
+
     # ---- cleaning ----
-    def start_clean(self, map_id: int) -> dict:
-        """Total clean. `map_id` comes from the 21004 reply (needs a saved map)."""
-        return self._clean_batch(map_id, cleanId=[-1, -3])
+    def start_clean(self, map_id: int, deep: bool = False) -> dict:
+        """Total clean. `map_id` comes from the 21004 reply (needs a saved map).
+        `deep` adds cleanTimes "depth" (two passes) to the sweep message; untested."""
+        extra = {"cleanTimes": "depth"} if deep else {}
+        return self._clean_batch(map_id, extra, cleanId=[-1, -3])
 
     def clean_rooms(self, room_ids: list[int], map_id: int) -> dict:
         """Clean the given room ids; order given = order cleaned."""
         if not room_ids:
             raise ValueError("no rooms given")
-        return self._clean_batch(map_id, segmentId=[int(r) for r in room_ids], cleanId=[-3])
+        return self._clean_batch(map_id, {}, segmentId=[int(r) for r in room_ids], cleanId=[-3])
 
-    def _clean_batch(self, map_id: int, **activate_data) -> dict:
-        activate = self._e.build(INFOTYPE_ACTIVATE_AREA, connection_type=0,
-                                 mapId=map_id, extraAreas=[], **activate_data)
+    def clean_zone(self, x1: float, y1: float, x2: float, y2: float, map_id: int) -> dict:
+        """Clean one rectangle given by two opposite corners in map coordinates. The extraAreas
+        shape comes from the decompiled app and is untested."""
+        zone = {
+            "name": "zone", "id": 1, "tag": "zone", "active": "normal", "mode": "point",
+            "vertexs": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+        }
+        return self._clean_batch(map_id, {}, extraAreas=[zone], cleanId=[-3])
+
+    def along_wall(self, map_id: int) -> dict:
+        """Clean along the walls (mode alongWallClean, from the app, untested)."""
+        return self._e.build(INFOTYPE_SET_AREA_SWEEP, connection_type=0, mapId=map_id,
+                             mode=CLEAN_MODE_ALONG_WALL, cleanMode=SWEEP_MODE_SWEEP_ONLY)
+
+    def go_to_point(self, x: float, y: float, map_id: int) -> dict:
+        """Drive to a map coordinate (mode givenPoint, from the app, untested)."""
+        return self._e.build(INFOTYPE_SET_AREA_SWEEP, connection_type=0, mapId=map_id,
+                             mode=CLEAN_MODE_GIVEN_POINT, cleanMode=SWEEP_MODE_SWEEP_ONLY, point=[x, y])
+
+    def set_room_passes(self, rooms: list[dict], room_id: int, double: bool, map_id: int) -> dict:
+        """Save the room list with one room's pass count changed (active "depth" = two passes,
+        "normal" = one). `rooms` must be the list as last read from the vacuum; every other
+        field of every room is sent back unchanged."""
+        if not any(r.get("id") == room_id for r in rooms):
+            raise ValueError(f"room {room_id} is not on the saved map")
+        updated = [{**r, "active": ("depth" if double else "normal")} if r.get("id") == room_id else dict(r)
+                   for r in rooms]
+        return self._e.build(INFOTYPE_SET_AREA, connection_type=0, mapId=map_id, autoAreaValue=updated)
+
+    def _clean_batch(self, map_id: int, sweep_extra: dict, **activate_data) -> dict:
+        if "extraAreas" not in activate_data:
+            activate_data["extraAreas"] = []
+        activate = self._e.build(INFOTYPE_ACTIVATE_AREA, connection_type=0, mapId=map_id, **activate_data)
         sweep = self._e.build(INFOTYPE_SET_AREA_SWEEP, connection_type=0,
-                              mode=CLEAN_MODE_RE_APPOINT, cleanMode=SWEEP_MODE_SWEEP_ONLY)
+                              mode=CLEAN_MODE_RE_APPOINT, cleanMode=SWEEP_MODE_SWEEP_ONLY, **sweep_extra)
         return self._e.build(INFOTYPE_COMPOUND, cmds=[activate, sweep])

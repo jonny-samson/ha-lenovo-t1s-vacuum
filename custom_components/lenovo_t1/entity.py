@@ -38,6 +38,7 @@ class T1Entity(Entity):
         return self.client.available
 
     async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
         self.async_on_remove(
             async_dispatcher_connect(self.hass, self._entry.runtime_data.signal, self._refresh))
 

@@ -9,6 +9,7 @@ import logging
 import queue
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from typing import NamedTuple
 
@@ -38,7 +39,7 @@ MAX_BACKOFF = 60
 RECV_TIMEOUT = 2  # seconds receive() blocks when idle
 STATE_POLL = 30  # bare 20001 when nothing has been reported for this long
 ROOMS_POLL = 300  # also used for the Wi-Fi and firmware queries
-CONSUMABLES_POLL = 600
+CONSUMABLES_POLL = 600  # default for slow_poll=300 (twice the slow poll)
 # After connecting, the slow queries are spread out instead of fired back to back
 # (a burst of 21015 with 20001/21020 once made the device drop the connection).
 STARTUP_STAGGER = {"rooms": 2, "consumables": 4, "wifi": 6, "version": 8}
@@ -75,9 +76,12 @@ class DriveBurst(NamedTuple):
 
 class T1Client:
     def __init__(self, host: str, device_id: str, local_key: str, serial: str,
-                 user_id: str, version: float = 3.3) -> None:
+                 user_id: str, version: float = 3.3, state_poll: float = STATE_POLL,
+                 slow_poll: float = ROOMS_POLL) -> None:
         self._host, self._dev_id, self._key = host, device_id, local_key
         self._version = float(version)
+        self._state_poll = state_poll
+        self._slow_poll = slow_poll  # rooms, Wi-Fi and firmware; consumables use twice this
         self.commands = Commands(protocol.Envelope(serial, user_id))
         self._cmds: queue.Queue = queue.Queue()
         self._listeners: list[Callable[[], None]] = []
@@ -96,6 +100,15 @@ class T1Client:
         self.fault: int = 0
         self.last_message: int | None = None  # last 20003 type=message code
         self.connect_count = 0  # successful connections since start; first one is not a reconnect
+        self.rooms_known = False  # a 21004 reply has arrived
+        self.position = None  # last "pos" from the status report, as sent (format not documented)
+        self.events: deque[tuple[str, int]] = deque(maxlen=50)  # ("message"|"fault"|"fault_cleared", code)
+        self.event_count = 0  # events ever appended; lets a reader find the ones it has not seen
+        self.auth_errors = 0  # consecutive "check device key or version" replies
+        self.finished_cleans = 0  # cleans that ended on the dock since start
+        self.finished_area: float = 0
+        self.finished_seconds: float = 0
+        self._in_clean = False
         self._seen_state = False
 
     # ---- lifecycle ----
@@ -165,6 +178,11 @@ class T1Client:
         return FAULT_CODES.get(self.fault, f"unknown ({self.fault})") if self.fault else "ok"
 
     @property
+    def auth_failed(self) -> bool:
+        """Three connection attempts in a row were refused for a bad key or protocol version."""
+        return self.auth_errors >= 3
+
+    @property
     def last_message_text(self) -> str | None:
         if self.last_message is None:
             return None
@@ -197,14 +215,33 @@ class T1Client:
         """Ask for the state; the loop follows up with the slower queries."""
         self.send(self.commands.query_state())
 
-    def start_clean(self) -> None:
-        self.send(self.commands.start_clean(self._require_map()))
+    def start_clean(self, deep: bool = False) -> None:
+        self.send(self.commands.start_clean(self._require_map(), deep))
 
     def clean_rooms(self, room_ids: list[int]) -> None:
         unknown = [r for r in room_ids if r not in self.room_ids()]
         if unknown:
             raise ValueError(f"rooms not on the saved map: {unknown}")
         self.send(self.commands.clean_rooms(room_ids, self._require_map()))
+
+    def spot_clean(self) -> None:
+        self.send(self.commands.spot_clean())
+
+    def along_wall(self) -> None:
+        self.send(self.commands.along_wall(self._require_map()))
+
+    def clean_zone(self, x1: float, y1: float, x2: float, y2: float) -> None:
+        self.send(self.commands.clean_zone(x1, y1, x2, y2, self._require_map()))
+
+    def go_to_point(self, x: float, y: float) -> None:
+        self.send(self.commands.go_to_point(x, y, self._require_map()))
+
+    def set_room_passes(self, room_id: int, double: bool) -> None:
+        """Change one room's pass count. Needs the room list as last read from the vacuum."""
+        if not self.rooms_known:
+            raise ValueError("the room list has not been read yet")
+        self.send(self.commands.set_room_passes(self.rooms, room_id, double, self._require_map()))
+        self.send(self.commands.query_rooms())
 
     def _require_map(self) -> int:
         if not self.has_map:
@@ -267,6 +304,8 @@ class T1Client:
                 d.set_socketRetryLimit(1)
                 status = d.status()
                 if isinstance(status, dict) and status.get("Error"):
+                    if status.get("Err") == "914":
+                        self._count_auth_error()
                     raise ConnectionError(status.get("Error"))
                 self.connected = True
                 self.connect_count += 1
@@ -292,10 +331,11 @@ class T1Client:
     def _loop(self, d: tinytuya.Device) -> None:
         now = time.time()
         hb = state_at = now
-        rooms_at = now - ROOMS_POLL + STARTUP_STAGGER["rooms"]
-        cons_at = now - CONSUMABLES_POLL + STARTUP_STAGGER["consumables"]
-        wifi_at = now - ROOMS_POLL + STARTUP_STAGGER["wifi"]
-        version_at = now - ROOMS_POLL + STARTUP_STAGGER["version"]
+        slow, cons_poll = self._slow_poll, self._slow_poll * 2
+        rooms_at = now - slow + STARTUP_STAGGER["rooms"]
+        cons_at = now - cons_poll + STARTUP_STAGGER["consumables"]
+        wifi_at = now - slow + STARTUP_STAGGER["wifi"]
+        version_at = now - slow + STARTUP_STAGGER["version"]
         while not self._stop.is_set():
             try:
                 item = self._cmds.get(timeout=0.2)
@@ -309,26 +349,42 @@ class T1Client:
             if now - hb > HEARTBEAT_INTERVAL:
                 d.heartbeat(nowait=True)
                 hb = now
-            if now - max(self.last_report, state_at) > STATE_POLL:
+            if now - max(self.last_report, state_at) > self._state_poll:
                 self.send(self.commands.query_state())
                 state_at = now
-            if now - rooms_at > ROOMS_POLL:
+            if now - rooms_at > slow:
                 self.send(self.commands.query_rooms())
                 rooms_at = now
-            if now - cons_at > CONSUMABLES_POLL:
+            if now - cons_at > cons_poll:
                 self.send(self.commands.query_consumables())
                 cons_at = now
-            if now - wifi_at > ROOMS_POLL:
+            if now - wifi_at > slow:
                 self.send(self.commands.query_wifi())
                 wifi_at = now
-            if now - version_at > ROOMS_POLL:
+            if now - version_at > slow:
                 self.send(self.commands.query_version())
                 version_at = now
             resp = d.receive()
             if resp and resp.get("Err") in ("901", "904", "905", "914"):
+                if resp.get("Err") == "914":
+                    self._count_auth_error()
                 raise ConnectionError(resp.get("Error"))
             if resp:
                 self._handle(resp)
+
+    def _add_event(self, kind: str, code: int) -> None:
+        self.events.append((kind, code))
+        self.event_count += 1
+
+    def new_events(self, seen: int) -> list[tuple[str, int]]:
+        """Events added since the reader last looked (`seen` = the event_count it saw then)."""
+        fresh = min(self.event_count - seen, len(self.events))
+        return list(self.events)[len(self.events) - fresh:] if fresh > 0 else []
+
+    def _count_auth_error(self) -> None:
+        self.auth_errors += 1
+        if self.auth_failed:
+            self._notify()
 
     def _drive(self, d: tinytuya.Device, burst: DriveBurst) -> None:
         for _ in range(burst.count):
@@ -356,8 +412,13 @@ class T1Client:
         if not isinstance(data, dict):
             return
         changed = False
+        if info_type in (INFOTYPE_DEVICE_STATUS, INFOTYPE_GET_AREA, INFOTYPE_GET_CONSUMABLE,
+                         INFOTYPE_GET_WIFI, INFOTYPE_GET_VERSION):
+            self.auth_errors = 0
         if info_type == INFOTYPE_DEVICE_STATUS:
             self.last_report = time.time()
+            if "pos" in data:
+                self.position = data["pos"]
             new = {k: v for k, v in data.items() if k not in _NOISY_KEYS and k not in ("sn", "userId")}
             before = dict(self.state)
             self.state.update(new)
@@ -371,7 +432,8 @@ class T1Client:
             rooms = [r for r in data.get("autoAreaValue") or [] if isinstance(r, dict)]
             map_id = data.get("mapId", self.map_id)
             changed = rooms != self.rooms or map_id != self.map_id
-            self.rooms, self.map_id = rooms, map_id
+            changed = changed or not self.rooms_known
+            self.rooms, self.map_id, self.rooms_known = rooms, map_id, True
         elif info_type == INFOTYPE_GET_CONSUMABLE:
             self.last_report = time.time()
             new = {k: data[k] for k in CONSUMABLE_KEYS if isinstance(data.get(k), int)}
@@ -391,17 +453,31 @@ class T1Client:
             code = (data.get("msg") or {}).get("code", 0)
             if data.get("type") == "error":
                 changed = code != self.fault
+                if changed:
+                    self._add_event("fault" if code else "fault_cleared", code or self.fault)
                 self.fault = code if isinstance(code, int) else 0
             elif data.get("type") == "message":
                 self.last_message = code
+                self._add_event("message", code)
                 changed = True
         if changed:
             self._notify()
 
     def _remember_clean(self, new: dict) -> None:
-        """Keep the last non-zero area/time; a fresh clean (mode sweep) may start from 0."""
-        starting = self.state.get("mode") == "sweep"
+        """Keep the last non-zero area/time; a fresh clean (mode sweep) may start from 0.
+        A clean that ends on the dock (or idle) is added to the finished totals once."""
+        mode = self.state.get("mode")
+        starting = mode == "sweep"
         for key, attr in (("cleanArea", "_last_area"), ("cleanTime", "_last_time")):
             value = new.get(key)
             if isinstance(value, (int, float)) and (value > 0 or starting):
                 setattr(self, attr, value)
+        if starting:
+            self._in_clean = True
+        elif self._in_clean and mode in ("charge", "fullcharge", "idle"):
+            self._in_clean = False
+            area, seconds = self._last_area or 0, self._last_time or 0
+            if area > 0 or seconds > 0:
+                self.finished_cleans += 1
+                self.finished_area += area
+                self.finished_seconds += seconds

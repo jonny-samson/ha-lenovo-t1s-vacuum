@@ -6,9 +6,13 @@ import time
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
@@ -19,13 +23,19 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_DEVICE_ID,
     CONF_LOCAL_KEY,
+    CONF_ROOM_SLOTS,
     CONF_SERIAL,
+    CONF_SLOW_POLL,
+    CONF_STATE_POLL,
     CONF_USER_ID,
     CONF_VERSION,
     DEFAULT_NAME,
+    DEFAULT_SLOW_POLL,
+    DEFAULT_STATE_POLL,
     DEFAULT_VERSION,
     DOMAIN,
     PROTOCOL_VERSIONS,
+    ROOM_SLOTS,
 )
 from .t1api import T1Client
 
@@ -43,6 +53,8 @@ def _probe(data: dict) -> str | None:
         while time.time() < deadline:
             if client.last_report:
                 return None
+            if client.auth_errors:
+                return "invalid_auth"
             time.sleep(0.25)
         return "no_response" if client.connected else "cannot_connect"
     finally:
@@ -64,8 +76,20 @@ def _schema(defaults: dict | None = None, *, full: bool = True) -> vol.Schema:
     return vol.Schema(fields)
 
 
+def _number(low: int, high: int, unit: str | None = None) -> NumberSelector:
+    config = NumberSelectorConfig(min=low, max=high, step=1, mode=NumberSelectorMode.BOX)
+    if unit:
+        config["unit_of_measurement"] = unit
+    return NumberSelector(config)
+
+
 class LenovoT1ConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return LenovoT1OptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -94,3 +118,40 @@ class LenovoT1ConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reconfigure", data_schema=_schema(user_input or dict(entry.data), full=False),
             errors=errors)
+
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """The vacuum refused the key or protocol version; ask for them again."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            user_input = {k: v.strip() if isinstance(v, str) else v for k, v in user_input.items()}
+            merged = {**entry.data, **user_input}
+            error = await self.hass.async_add_executor_job(_probe, merged)
+            if error is None:
+                return self.async_update_reload_and_abort(entry, data=merged)
+            errors["base"] = error
+        secret = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+        schema = vol.Schema({
+            vol.Required(CONF_LOCAL_KEY): secret,
+            vol.Required(CONF_VERSION, default=entry.data.get(CONF_VERSION, DEFAULT_VERSION)): SelectSelector(
+                SelectSelectorConfig(options=PROTOCOL_VERSIONS)),
+        })
+        return self.async_show_form(step_id="reauth_confirm", data_schema=schema, errors=errors)
+
+
+class LenovoT1OptionsFlow(OptionsFlow):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data={k: int(v) for k, v in user_input.items()})
+        o = self.config_entry.options
+        schema = vol.Schema({
+            vol.Required(CONF_ROOM_SLOTS, default=o.get(CONF_ROOM_SLOTS, ROOM_SLOTS)): _number(1, 30),
+            vol.Required(CONF_STATE_POLL, default=o.get(CONF_STATE_POLL, DEFAULT_STATE_POLL)): _number(
+                10, 300, "s"),
+            vol.Required(CONF_SLOW_POLL, default=o.get(CONF_SLOW_POLL, DEFAULT_SLOW_POLL)): _number(
+                60, 3600, "s"),
+        })
+        return self.async_show_form(step_id="init", data_schema=schema)

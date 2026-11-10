@@ -32,3 +32,37 @@ drive:
           max: 10
           step: 0.25
           unit_of_measurement: s
+
+clean:
+  target:
+    entity:
+      integration: lenovo_t1
+      domain: vacuum
+  fields:
+    mode:
+      required: false
+      default: total
+      selector:
+        select:
+          options: [total, deep, along_wall]
+          translation_key: clean_mode
+
+clean_zone:
+  target:
+    entity:
+      integration: lenovo_t1
+      domain: vacuum
+  fields:
+    x1: {required: true, example: 0.5, selector: {number: {mode: box, step: any}}}
+    y1: {required: true, example: 0.5, selector: {number: {mode: box, step: any}}}
+    x2: {required: true, example: 2.0, selector: {number: {mode: box, step: any}}}
+    y2: {required: true, example: 2.0, selector: {number: {mode: box, step: any}}}
+
+go_to_point:
+  target:
+    entity:
+      integration: lenovo_t1
+      domain: vacuum
+  fields:
+    x: {required: true, example: 1.0, selector: {number: {mode: box, step: any}}}
+    y: {required: true, example: 1.0, selector: {number: {mode: box, step: any}}}

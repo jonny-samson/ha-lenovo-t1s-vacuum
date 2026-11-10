@@ -110,3 +110,13 @@ Modes seen: idle, charge, sweep (subMode total|smart|smartArea|null), pause, bac
 Faults seen live: -2601 off ground, -2406 dust box missing, -2305 radar blocked, -2404 radar cover, -2607 cliff, -2201 main wheel stuck, -2401 main brush stuck.
 Total clean via bare 21005 totalClean works only with ~1-2 min delay and no mapId; use the batch above with the real mapId.
 This model: no mop, water, schedules (disabled; HA owns scheduling), or emptiable dock.
+
+## Implemented from the app only (not verified live)
+These are in the integration, flagged experimental. Formats come from the decompiled app:
+- Spot clean: 21020 ctrlCode 3001.
+- Deep total clean: the total-clean batch with `cleanTimes: "depth"` added to the 21005 message.
+- Along the walls: bare 21005 `mode: alongWallClean, cleanMode: sweepOnly, mapId`.
+- Zone clean: the room-clean batch with `extraAreas: [{name, id, tag, active, mode: "point", vertexs: [[x,y] x4]}]`, `cleanId: [-3]`.
+- Go to point: bare 21005 `mode: givenPoint, point: [x, y], mapId`.
+- Per-room passes: 21003 with the full `autoAreaValue` as last read, one room's `active` changed (`depth` = two passes).
+  The 21003 save itself is in the verified table above; changing one room's pass count through it was not re-run.

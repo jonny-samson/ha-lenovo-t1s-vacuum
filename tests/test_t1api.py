@@ -202,3 +202,88 @@ def test_last_event_text_and_reconnects(client):
     assert client.last_message_text == "unknown (1)"
     client.connect_count = 3
     assert client.reconnects == 2
+
+
+def test_deep_clean_and_spot_clean_shapes(cmds):
+    deep = cmds.start_clean(42, deep=True)["data"]["cmds"]
+    assert deep[1]["data"]["cleanTimes"] == "depth" and deep[0]["data"]["cleanId"] == [-1, -3]
+    assert "cleanTimes" not in cmds.start_clean(42)["data"]["cmds"][1]["data"]
+    spot = cmds.spot_clean()
+    assert spot["infoType"] == 21020 and spot["data"]["ctrlCode"] == 3001
+
+
+def test_zone_along_wall_and_point_shapes(cmds):
+    zone = cmds.clean_zone(1, 2, 3, 4, 42)["data"]["cmds"][0]["data"]
+    assert zone["cleanId"] == [-3] and zone["mapId"] == 42
+    assert zone["extraAreas"][0]["vertexs"] == [[1, 2], [3, 2], [3, 4], [1, 4]]
+    wall = cmds.along_wall(42)
+    assert wall["infoType"] == 21005 and wall["data"]["mode"] == "alongWallClean" and wall["data"]["mapId"] == 42
+    point = cmds.go_to_point(1.5, -2, 42)
+    assert point["data"]["mode"] == "givenPoint" and point["data"]["point"] == [1.5, -2]
+
+
+def test_room_passes_changes_only_that_room(cmds):
+    rooms = [{"id": 1, "tag": "A", "active": "normal", "extra": [1, 2]},
+             {"id": 2, "tag": "B", "active": "depth", "extra": {"k": "v"}}]
+    msg = cmds.set_room_passes(rooms, 1, True, 7)
+    assert msg["infoType"] == 21003 and msg["data"]["mapId"] == 7
+    sent = msg["data"]["autoAreaValue"]
+    assert sent[0] == {"id": 1, "tag": "A", "active": "depth", "extra": [1, 2]}
+    assert sent[1] == rooms[1] and rooms[0]["active"] == "normal"  # input untouched
+    assert cmds.set_room_passes(rooms, 2, False, 7)["data"]["autoAreaValue"][1]["active"] == "normal"
+    with pytest.raises(ValueError):
+        cmds.set_room_passes(rooms, 9, True, 7)
+
+
+def test_client_room_passes_needs_fresh_rooms(client):
+    with pytest.raises(ValueError):
+        client.set_room_passes(1, True)
+    client.handle_payload({"infoType": 21004, "data": {"mapId": 5, "autoAreaValue": [
+        {"id": 1, "tag": "Hall", "active": "normal"}]}})
+    assert client.rooms_known
+    client.set_room_passes(1, True)
+    assert [m["infoType"] for m in (client._cmds.get_nowait(), client._cmds.get_nowait())] == [21003, 21004]
+
+
+def test_finished_cleans_are_totalled_once(client):
+    def report(**data):
+        client.handle_payload({"infoType": 20001, "data": data})
+    report(mode="charge", cleanArea=0, cleanTime=0)
+    report(mode="sweep", cleanArea=10, cleanTime=600)
+    report(mode="backcharge", cleanArea=12, cleanTime=720)
+    report(mode="charge", cleanArea=0, cleanTime=0)
+    report(mode="fullcharge", cleanArea=0, cleanTime=0)
+    assert (client.finished_cleans, client.finished_area, client.finished_seconds) == (1, 12, 720)
+    report(mode="sweep", cleanArea=0, cleanTime=0)
+    report(mode="charge", cleanArea=0, cleanTime=0)  # nothing was cleaned: not counted
+    assert client.finished_cleans == 1
+
+
+def test_event_log_and_new_events(client):
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 6023}, "type": "message"}})
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": -2406}, "type": "error"}})
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": -2406}, "type": "error"}})  # same: no event
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 0}, "type": "error"}})
+    assert client.event_count == 3
+    assert client.new_events(0) == [("message", 6023), ("fault", -2406), ("fault_cleared", -2406)]
+    assert client.new_events(2) == [("fault_cleared", -2406)] and client.new_events(3) == []
+
+
+def test_auth_failure_needs_three_refusals_and_resets(client):
+    client._count_auth_error()
+    client._count_auth_error()
+    assert not client.auth_failed
+    client._count_auth_error()
+    assert client.auth_failed
+    client.handle_payload({"infoType": 20001, "data": {"mode": "charge"}})
+    assert not client.auth_failed
+
+
+def test_position_is_kept_without_notifying(client):
+    seen = []
+    client.add_listener(lambda: seen.append(1))
+    client.handle_payload({"infoType": 20001, "data": {"mode": "sweep"}})
+    n = len(seen)
+    client.handle_payload({"infoType": 20001, "data": {"mode": "sweep", "pos": [1.5, 2.5]}})
+    assert client.position == [1.5, 2.5] and len(seen) == n
+    assert "pos" not in client.state

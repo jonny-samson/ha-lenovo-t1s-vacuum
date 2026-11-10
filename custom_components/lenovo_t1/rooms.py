@@ -80,6 +80,6 @@ def resolve_rooms(hass: HomeAssistant, entry: T1ConfigEntry, items: list) -> lis
     return ids
 
 
-def enabled_by_default(known_ids: list[int], slot: int) -> bool:
+def enabled_by_default(known_ids: list[int], slot: int, slots: int = ROOM_SLOTS) -> bool:
     """Slots that exist on the map are enabled; the rest start disabled."""
-    return slot in known_ids if known_ids else slot <= ROOM_SLOTS
+    return slot in known_ids if known_ids else slot <= slots

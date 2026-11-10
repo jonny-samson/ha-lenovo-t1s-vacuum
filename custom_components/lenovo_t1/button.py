@@ -26,7 +26,7 @@ DRIVE_BUTTONS = (
 async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
                             async_add_entities: AddConfigEntryEntitiesCallback) -> None:
     async_add_entities([
-        T1Locate(entry), T1CancelDock(entry), T1CleanQueue(entry), T1ClearQueue(entry),
+        T1Locate(entry), T1CancelDock(entry), T1SpotClean(entry), T1CleanQueue(entry), T1ClearQueue(entry),
         *[T1Drive(entry, *b) for b in DRIVE_BUTTONS],
         *[T1ResetConsumable(entry, k, v) for k, v in CONSUMABLES.items()],
     ])
@@ -40,6 +40,20 @@ class T1Locate(T1Entity, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.hass.async_add_executor_job(self.client.locate)
+
+
+class T1SpotClean(T1Entity, ButtonEntity):
+    """Cleans around where the vacuum is (ctrlCode 3001 from the app; untested), so off by default."""
+
+    _attr_name = "Spot clean"
+    _attr_icon = "mdi:target"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "spot_clean")
+
+    async def async_press(self) -> None:
+        await self.hass.async_add_executor_job(self.client.spot_clean)
 
 
 class T1CancelDock(T1Entity, ButtonEntity):

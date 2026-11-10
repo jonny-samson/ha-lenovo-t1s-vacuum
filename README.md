@@ -54,6 +54,22 @@ keeps the raw value such as `rfctrl`.
 **Controls:** volume (0-10), indicator light, find robot, and reset buttons for the filter, side brush, main
 brush and sensors life.
 
+**Events and totals.** The **Vacuum message** event entity fires for each message the vacuum sends ("cleaning
+completed", re-locate, dust collection...) and when a fault appears or clears: use it as an automation trigger.
+**Total cleaned area**, **Total cleaning time** and **Cleans completed** are counted in Home Assistant, because the
+vacuum's own statistics do not answer locally. A clean counts when it ends on the dock, and the totals survive
+restarts.
+
+**Experimental (not tested on the real vacuum):** formats taken from the vendor app. The **Spot clean** button and
+the per-room **double pass** switches are off by default; enable them in Settings > Entities. Turning a double pass
+switch on or off saves the room list on the vacuum, the same save the app does. The services
+`lenovo_t1.clean` (`mode`: total, deep, along_wall), `lenovo_t1.clean_zone` (`x1`, `y1`, `x2`, `y2` in map
+coordinates) and `lenovo_t1.go_to_point` (`x`, `y`) may do nothing or the wrong thing on your vacuum. The
+**Position** sensor (off by default) shows the coordinates the vacuum reports, to help pick values for them.
+
+**Options** (Configure on the integration page): number of room slots (default 10) and the polling intervals. If the
+vacuum keeps refusing the key, a repair notice and a re-authentication prompt appear. A repair notice also shows while the vacuum has no saved map.
+
 **Overview / health (diagnostic):** Map ID, Rooms (count; the list with names and single/double pass is an
 attribute), Map saved, Clean type, Last event (latest message from the vacuum), Reconnects, and a Connection
 sensor that stays available while the vacuum is offline.
@@ -98,8 +114,7 @@ integration re-reads the room list every five minutes.
 
 - This model has no mop, water tank or emptiable dock, so none of those entities exist.
 - Schedules are left to Home Assistant; the two on-device schedules are not used.
-- Not done: side-brush fault (`-2402`) is decoded but untested; per-room passes are read-only; the
-  map image and statistics get no local reply.
+- Not done: side-brush fault (`-2402`) is decoded but untested; the map image and statistics get no local reply.
 
 ## Development
 

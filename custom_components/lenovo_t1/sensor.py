@@ -1,10 +1,15 @@
 """Sensors."""
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfArea, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import T1ConfigEntry
 from .entity import T1Entity
@@ -21,6 +26,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
         T1Battery(entry), T1CleanArea(entry), T1CleanTime(entry), T1Fault(entry),
         T1Mode(entry), T1RoomQueue(entry), T1Firmware(entry),
         T1MapId(entry), T1RoomCount(entry), T1CleanType(entry), T1LastEvent(entry), T1Reconnects(entry),
+        T1Position(entry), T1Total(entry, "total_area", "Total cleaned area"),
+        T1Total(entry, "total_time", "Total cleaning time"), T1Total(entry, "total_cleans", "Cleans completed"),
         T1Info(entry, "wifi_ssid", "Wi-Fi network", "wifi", "staId", "mdi:wifi"),
         T1WifiSignal(entry),
         T1Info(entry, "wifi_ip", "IP address", "wifi", "staIp", "mdi:ip-network", enabled=False),
@@ -183,6 +190,71 @@ class T1LastEvent(T1Entity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {"code": self.client.last_message}
+
+
+class T1Position(T1Entity, SensorEntity):
+    """The robot's position as the vacuum reports it (map coordinates). Updates when other state
+    changes, not on every step; use it to find coordinates for the go_to_point and clean_zone services."""
+
+    _attr_name = "Position"
+    _attr_icon = "mdi:crosshairs-gps"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "position")
+
+    @property
+    def native_value(self) -> str | None:
+        pos = self.client.position
+        return None if pos is None else str(pos)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        pos = self.client.position
+        if isinstance(pos, dict):
+            return {k: pos[k] for k in ("x", "y") if k in pos}
+        if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+            return {"x": pos[0], "y": pos[1]}
+        return {}
+
+
+class T1Total(T1Entity, SensorEntity, RestoreEntity):
+    """Lifetime totals, counted here because the vacuum's own statistics do not answer locally.
+    A clean counts when it ends on the dock; the running total is restored after a restart."""
+
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:counter"
+
+    def __init__(self, entry: T1ConfigEntry, key: str, name: str) -> None:
+        super().__init__(entry, key)
+        self._key = key
+        self._attr_name = name
+        self._base = 0.0
+        if key == "total_area":
+            self._attr_device_class = SensorDeviceClass.AREA
+            self._attr_native_unit_of_measurement = UnitOfArea.SQUARE_METERS
+        elif key == "total_time":
+            self._attr_device_class = SensorDeviceClass.DURATION
+            self._attr_native_unit_of_measurement = UnitOfTime.MINUTES
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None and last.state not in ("unknown", "unavailable", ""):
+            try:
+                self._base = float(last.state)
+            except ValueError:
+                pass
+
+    @property
+    def native_value(self) -> float | int:
+        c = self.client
+        if self._key == "total_area":
+            return round(self._base + c.finished_area, 1)
+        if self._key == "total_time":
+            return round(self._base + c.finished_seconds / 60)
+        return round(self._base) + c.finished_cleans
 
 
 class T1Reconnects(T1Entity, SensorEntity):

@@ -13,10 +13,15 @@ from . import T1ConfigEntry
 from .const import (
     ATTR_DIRECTION,
     ATTR_DURATION,
+    ATTR_MODE,
     ATTR_ROOMS,
+    CLEAN_MODES,
     DOMAIN,
+    SERVICE_CLEAN,
     SERVICE_CLEAN_ROOMS,
+    SERVICE_CLEAN_ZONE,
     SERVICE_DRIVE,
+    SERVICE_GO_TO_POINT,
 )
 from .entity import T1Entity
 from .rooms import resolve_rooms
@@ -48,6 +53,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
         },
         "async_drive",
     )
+    platform = entity_platform.async_get_current_platform()
+    platform.async_register_entity_service(
+        SERVICE_CLEAN, {vol.Optional(ATTR_MODE, default="total"): vol.In(CLEAN_MODES)}, "async_clean")
+    coords = {vol.Required(k): vol.Coerce(float) for k in ("x1", "y1", "x2", "y2")}
+    platform.async_register_entity_service(SERVICE_CLEAN_ZONE, coords, "async_clean_zone")
+    platform.async_register_entity_service(
+        SERVICE_GO_TO_POINT, {vol.Required("x"): vol.Coerce(float), vol.Required("y"): vol.Coerce(float)},
+        "async_go_to_point")
 
 
 class T1Vacuum(T1Entity, StateVacuumEntity):
@@ -105,6 +118,21 @@ class T1Vacuum(T1Entity, StateVacuumEntity):
         """Clean the given rooms in order. Items are room numbers or names."""
         ids = resolve_rooms(self.hass, self._entry, rooms)
         await self._call(self.client.clean_rooms, ids)
+
+    async def async_clean(self, mode: str = "total") -> None:
+        """Whole-home clean: total, deep (two passes) or along the walls. Deep and along_wall are untested."""
+        if mode == "along_wall":
+            await self._call(self.client.along_wall)
+        else:
+            await self._call(self.client.start_clean, mode == "deep")
+
+    async def async_clean_zone(self, x1: float, y1: float, x2: float, y2: float) -> None:
+        """Clean a rectangle in map coordinates. Untested."""
+        await self._call(self.client.clean_zone, x1, y1, x2, y2)
+
+    async def async_go_to_point(self, x: float, y: float) -> None:
+        """Drive to a map coordinate. Untested."""
+        await self._call(self.client.go_to_point, x, y)
 
     async def async_drive(self, direction: str, duration: float | None = None) -> None:
         """Manual control: move or turn for roughly `duration` seconds (default 1.5)."""

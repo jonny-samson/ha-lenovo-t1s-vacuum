@@ -28,15 +28,25 @@
           "user_id": "User ID",
           "version": "Protocol version"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to the vacuum",
+        "description": "The vacuum refused the connection. Enter the local key again, and check the protocol version. Do not re-pair or factory reset the vacuum, that changes the local key.",
+        "data": {
+          "local_key": "Local key",
+          "version": "Protocol version"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect. Check the IP address and that nothing else (the app is fine when idle) is holding the connection.",
-      "no_response": "Connected, but the vacuum did not answer. Check the local key, serial number and user ID."
+      "no_response": "Connected, but the vacuum did not answer. Check the local key, serial number and user ID.",
+      "invalid_auth": "The vacuum refused the key or protocol version. Check the local key and try 3.4 or 3.5 if it was working before."
     },
     "abort": {
       "already_configured": "This vacuum is already configured.",
-      "reconfigure_successful": "Settings updated."
+      "reconfigure_successful": "Settings updated.",
+      "reauth_successful": "Re-authentication succeeded."
     }
   },
   "exceptions": {
@@ -74,6 +84,52 @@
           "description": "Seconds to keep moving (default 1.5, maximum 10)."
         }
       }
+    },
+    "clean": {
+      "name": "Clean",
+      "description": "Clean the whole home. Deep (two passes) and along the walls are untested.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "total, deep or along the walls."
+        }
+      }
+    },
+    "clean_zone": {
+      "name": "Clean zone",
+      "description": "Clean a rectangle given by two opposite corners in map coordinates. Experimental and untested.",
+      "fields": {
+        "x1": {
+          "name": "x1",
+          "description": "Map coordinate."
+        },
+        "y1": {
+          "name": "y1",
+          "description": "Map coordinate."
+        },
+        "x2": {
+          "name": "x2",
+          "description": "Map coordinate."
+        },
+        "y2": {
+          "name": "y2",
+          "description": "Map coordinate."
+        }
+      }
+    },
+    "go_to_point": {
+      "name": "Go to point",
+      "description": "Drive to a map coordinate. Experimental and untested.",
+      "fields": {
+        "x": {
+          "name": "X",
+          "description": "Map coordinate."
+        },
+        "y": {
+          "name": "Y",
+          "description": "Map coordinate."
+        }
+      }
     }
   },
   "selector": {
@@ -83,6 +139,13 @@
         "back": "Back",
         "left": "Turn left",
         "right": "Turn right"
+      }
+    },
+    "clean_mode": {
+      "options": {
+        "total": "Total",
+        "deep": "Deep (two passes)",
+        "along_wall": "Along the walls"
       }
     }
   },
@@ -101,6 +164,61 @@
           "fault": "Fault"
         }
       }
+    },
+    "event": {
+      "vacuum_message": {
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "fail_to_recharge": "Fail to recharge",
+              "cleaning_completed": "Cleaning completed",
+              "timed_cleaning_begins": "Timed cleaning begins",
+              "re_locate": "Re-locate",
+              "charged_cleaning_continues": "Charged, cleaning continues",
+              "low_battery_cannot_start": "Low battery, cannot start",
+              "fail_to_power_off_on_charging_pile": "Fail to power off on charging pile",
+              "re_locate_failed_restricted_zone": "Re-locate failed (restricted zone)",
+              "re_locate_failed_cannot_find_dock": "Re-locate failed (cannot find dock)",
+              "cleaning_in_progress_timed_clean_skipped": "Cleaning in progress, timed clean skipped",
+              "battery_low_please_charge": "Battery low, please charge",
+              "partial_cleaning_ends": "Partial cleaning ends",
+              "start_dust_collection": "Start dust collection",
+              "dust_collection_complete": "Dust collection complete",
+              "dust_bag_seems_full": "Dust bag seems full",
+              "dust_bag_not_in_place": "Dust bag not in place",
+              "dust_collection_fault": "Dust collection fault",
+              "unknown_message": "Unknown message",
+              "fault": "Fault",
+              "fault_cleared": "Fault cleared"
+            }
+          }
+        }
+      }
+    },
+    "switch": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "description": "Changes reload the integration. Lowering the room slots leaves the extra entities behind as unavailable, remove them in Settings > Entities.",
+        "data": {
+          "room_slots": "Room slots (switches created)",
+          "state_poll": "Status check, seconds",
+          "slow_poll": "Rooms, Wi-Fi and firmware check, seconds"
+        },
+        "data_description": {
+          "room_slots": "Slot N is room id N on the vacuum's map. Raise it if the map has room ids above the current number.",
+          "state_poll": "How often to ask for the status when the vacuum has been quiet.",
+          "slow_poll": "Consumables are read at twice this interval."
+        }
+      }
+    }
+  },
+  "issues": {
+    "no_map": {
+      "title": "The vacuum has no saved map",
+      "description": "Room and total cleaning are ignored until a map is saved in the vendor app. Run a full clean from the app, save the map, then come back: this notice clears itself."
     }
   }
 }

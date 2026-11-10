@@ -24,5 +24,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: T1Confi
         "wifi": client.wifi,
         "firmware": client.firmware,
         "fault": client.fault,
+        "position": client.position,
+        "rooms_known": client.rooms_known,
+        "auth_errors": client.auth_errors,
+        "reconnects": client.reconnects,
+        "finished": {"cleans": client.finished_cleans, "area": client.finished_area,
+                     "seconds": client.finished_seconds},
+        "options": dict(entry.options),
         "queue": entry.runtime_data.queue.ids,
     }, TO_REDACT)

@@ -301,3 +301,124 @@ async def test_no_map_shows_unknown_map_id(hass, fake_client):
     assert hass.states.get("sensor.lenovo_t1_pro_map_id").state == "unknown"
     assert hass.states.get("binary_sensor.lenovo_t1_pro_map_saved").state == "off"
     assert hass.states.get("sensor.lenovo_t1_pro_rooms").state == "0"
+
+
+async def test_event_entity_fires_for_messages_and_faults(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    eid = _eid(hass, "event", "messages")
+    state = hass.states.get(eid)
+    assert state is not None and "cleaning_completed" in state.attributes["event_types"]
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 6023}, "type": "message"}})
+    await hass.async_block_till_done()
+    s = hass.states.get(eid)
+    assert s.attributes["event_type"] == "cleaning_completed" and s.attributes["code"] == 6023
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": -2406}, "type": "error"}})
+    await hass.async_block_till_done()
+    assert hass.states.get(eid).attributes["event_type"] == "fault"
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 99999}, "type": "message"}})
+    await hass.async_block_till_done()
+    assert hass.states.get(eid).attributes["event_type"] == "unknown_message"
+
+
+async def test_device_gets_firmware_version(hass, fake_client):
+    from homeassistant.helpers import device_registry as dr
+    await _setup(hass, fake_client)
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, "dev123")})
+    assert device.sw_version == "0.3.6.1"
+
+
+async def test_no_map_repair_issue_appears_and_clears(hass, fake_client):
+    from homeassistant.helpers import issue_registry as ir
+    entry, client = await _setup(hass, fake_client)
+    issues = ir.async_get(hass)
+    assert issues.async_get_issue(DOMAIN, f"no_map_{entry.entry_id}") is None
+    client.handle_payload({"infoType": 21004, "data": {"mapId": -1, "autoAreaValue": []}})
+    await hass.async_block_till_done()
+    assert issues.async_get_issue(DOMAIN, f"no_map_{entry.entry_id}") is not None
+    client.handle_payload({"infoType": 21004, "data": {"mapId": 5, "autoAreaValue": [{"id": 1, "tag": "A"}]}})
+    await hass.async_block_till_done()
+    assert issues.async_get_issue(DOMAIN, f"no_map_{entry.entry_id}") is None
+
+
+async def test_double_pass_switch_is_off_by_default_and_saves_the_room_list(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    reg = er.async_get(hass)
+    ent = reg.async_get(_eid(hass, "switch", "passes_3"))
+    assert ent is not None and ent.disabled_by is not None
+    reg.async_update_entity(ent.entity_id, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    client = fake_client["client"]
+    assert hass.states.get(ent.entity_id).state == "off"  # Living Room: single pass
+    client.sent()
+    await hass.services.async_call("switch", "turn_on", {"entity_id": ent.entity_id}, blocking=True)
+    sent = client.sent()
+    save = [m for m in sent if m["infoType"] == 21003][0]["data"]
+    assert save["mapId"] == 5
+    assert [r["active"] for r in save["autoAreaValue"]] == ["depth", "depth", "depth"]
+    assert [r["tag"] for r in save["autoAreaValue"]] == ["Front Hall", "Kitchen", "Living Room"]
+    assert sent[-1]["infoType"] == 21004
+
+
+async def test_spot_clean_button_off_by_default(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    ent = er.async_get(hass).async_get(_eid(hass, "button", "spot_clean"))
+    assert ent is not None and ent.disabled_by is not None
+
+
+async def test_clean_services(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.sent()
+    vac = {"entity_id": "vacuum.lenovo_t1_pro"}
+    await hass.services.async_call(DOMAIN, "clean", {**vac, "mode": "deep"}, blocking=True)
+    assert client.sent()[0]["data"]["cmds"][1]["data"]["cleanTimes"] == "depth"
+    await hass.services.async_call(DOMAIN, "clean", {**vac, "mode": "along_wall"}, blocking=True)
+    assert client.sent()[0]["data"]["mode"] == "alongWallClean"
+    await hass.services.async_call(DOMAIN, "clean_zone", {**vac, "x1": 0, "y1": 0, "x2": 1, "y2": 2}, blocking=True)
+    assert client.sent()[0]["data"]["cmds"][0]["data"]["extraAreas"][0]["vertexs"][2] == [1, 2]
+    await hass.services.async_call(DOMAIN, "go_to_point", {**vac, "x": 1.5, "y": 2}, blocking=True)
+    assert client.sent()[0]["data"]["point"] == [1.5, 2]
+    client.handle_payload({"infoType": 21004, "data": {"mapId": -1, "autoAreaValue": []}})
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(DOMAIN, "clean", vac, blocking=True)
+
+
+async def test_totals_count_finished_cleans_and_restore(hass, fake_client):
+    from homeassistant.core import State
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    mock_restore_cache(hass, [State("sensor.lenovo_t1_pro_total_cleaned_area", "100.0"),
+                              State("sensor.lenovo_t1_pro_cleans_completed", "7")])
+    entry, client = await _setup(hass, fake_client)
+    area = "sensor.lenovo_t1_pro_total_cleaned_area"
+    assert hass.states.get(area).state == "100.0"
+    for mode, a, t in (("sweep", 10, 600), ("backcharge", 12, 720), ("charge", 0, 0)):
+        client.handle_payload({"infoType": 20001, "data": {"mode": mode, "cleanArea": a, "cleanTime": t}})
+    await hass.async_block_till_done()
+    assert hass.states.get(area).state == "112.0"
+    assert hass.states.get("sensor.lenovo_t1_pro_cleans_completed").state == "8"
+    assert hass.states.get("sensor.lenovo_t1_pro_total_cleaning_time").state == "12"
+
+
+async def test_position_sensor_off_by_default(hass, fake_client):
+    await _setup(hass, fake_client)
+    ent = er.async_get(hass).async_get(_eid(hass, "sensor", "position"))
+    assert ent is not None and ent.disabled_by is not None
+
+
+async def test_room_slots_option_changes_switch_count(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"room_slots": 12, "state_poll": 20, "slow_poll": 120})
+    await hass.async_block_till_done()
+    assert entry.options == {"room_slots": 12, "state_poll": 20, "slow_poll": 120}
+    assert _eid(hass, "switch", "room_12") is not None and _eid(hass, "switch", "room_13") is None
+
+
+async def test_auth_failure_starts_reauth(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.auth_errors = 3
+    client._notify()
+    await hass.async_block_till_done()
+    flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert any(f["context"]["source"] == "reauth" for f in flows)

@@ -8,6 +8,7 @@ see docs/PROTOCOL.md for the full write-up.
 INFOTYPE_DEVICE_STATUS = 20001  # state snapshot: mode, subMode, elec, cleanArea, cleanTime
 INFOTYPE_NOTIFICATION = 20003  # fault/info code in data.msg.code
 INFOTYPE_GET_AREA = 21004  # reply carries mapId + room/area ids
+INFOTYPE_SET_AREA = 21003  # save the room list: mapId + autoAreaValue[]
 INFOTYPE_SET_AREA_SWEEP = 21005  # start clean: data.mode / cleanMode / pathType / areaId[]
 INFOTYPE_SET_ROBOT_TO_CHARGE = 21012  # dock: cmd "start" / "stop"
 INFOTYPE_GET_CONSUMABLE = 21015  # read filter/sideBrush/mainBrush/sensors
@@ -48,6 +49,8 @@ DRIVE_CODES = {
 CLEAN_MODE_TOTAL = "totalClean"
 CLEAN_MODE_AREA = "areaClean"  # takes data.areaId[] of selected room ids
 CLEAN_MODE_RE_APPOINT = "reAppointClean"
+CLEAN_MODE_ALONG_WALL = "alongWallClean"  # from the app, untested
+CLEAN_MODE_GIVEN_POINT = "givenPoint"  # data.point [x, y]; from the app, untested
 SWEEP_MODE_SWEEP_ONLY = "sweepOnly"
 PATH_TYPE_NORMAL = "normal"
 
