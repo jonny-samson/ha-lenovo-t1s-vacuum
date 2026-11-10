@@ -26,7 +26,8 @@ updates the IP, key or protocol version later.
 ## Entities
 
 **Vacuum:** start (total clean; resumes if paused), pause, stop, return to dock, locate, fan speed
-(Low / Medium / High / Off). State, battery, fault and map status are attributes.
+(Low / Medium / High / Off). State, battery, fault and map status are attributes, including `raw_state`
+(the vacuum's own mode, e.g. `rfctrl`) and `friendly_state` (e.g. "Remote control"); the Mode sensor has the same two.
 Stop is sent as `21017 stop` and has not been verified on the real device.
 
 **Room queue (10 slots).** Each room on the vacuum's saved map gets a switch named after the room

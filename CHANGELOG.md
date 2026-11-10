@@ -6,13 +6,15 @@
 - Overview and health diagnostics: **Map ID**, **Rooms** (count, with the room list as an attribute),
   **Clean type**, **Last event** (e.g. "cleaning completed"), **Reconnects**, and the binary sensors
   **Connection** (stays available when the vacuum is offline) and **Map saved**.
-- The **Mode** sensor carries the last full status report in a `report` attribute, to make new fields easy to spot.
+- `raw_state` (the vacuum's own mode value, e.g. `rfctrl`) and `friendly_state` (e.g. "Remote control") attributes on the vacuum
+  entity and the Mode sensor, for automations and dashboards. The Mode sensor also carries the last full status report
+  in a `report` attribute, to make new fields easy to spot.
 
 ### Changed
 - The **Mode** sensor is now an enum sensor with readable names in the UI and logbook: Idle, Charging, Fully charged,
   Cleaning, Remote control, Paused, Paused, finding dock, Returning to dock, Fault. The state still holds the raw
   value (`rfctrl`, `sweep`, `charge`, ...), so automations keep working. A mode the integration does not know shows
-  as unknown, with the raw value in the `raw_mode` attribute.
+  as unknown there, while `raw_state` and `friendly_state` carry the raw value.
 
 ## 1.0.1
 

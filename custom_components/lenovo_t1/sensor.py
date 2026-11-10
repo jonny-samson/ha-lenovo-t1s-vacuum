@@ -110,7 +110,7 @@ class T1Mode(T1Entity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         # The whole last status report (position and timestamps are left out), handy for spotting new fields.
-        return {"raw_mode": self.client.mode, "report": dict(self.client.state)}
+        return {**self.mode_attributes, "report": dict(self.client.state)}
 
 
 class T1MapId(T1Entity, SensorEntity):

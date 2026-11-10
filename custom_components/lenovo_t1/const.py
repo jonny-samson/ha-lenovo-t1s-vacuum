@@ -20,3 +20,16 @@ ATTR_ROOMS = "rooms"
 SERVICE_DRIVE = "drive"
 ATTR_DIRECTION = "direction"
 ATTR_DURATION = "duration"
+
+# Readable text for the vacuum's own mode values. Keep in step with entity.sensor.mode.state in strings.json.
+MODE_NAMES = {
+    "idle": "Idle",
+    "charge": "Charging",
+    "fullcharge": "Fully charged",
+    "sweep": "Cleaning",
+    "rfctrl": "Remote control",
+    "pause": "Paused",
+    "findchargerpause": "Paused, finding dock",
+    "backcharge": "Returning to dock",
+    "fault": "Fault",
+}

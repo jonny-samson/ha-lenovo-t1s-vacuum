@@ -73,6 +73,7 @@ class T1Vacuum(T1Entity, StateVacuumEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {
+            **self.mode_attributes,
             "mode": self.client.mode,
             "fault_code": self.client.fault,
             "fault": self.client.fault_text,
