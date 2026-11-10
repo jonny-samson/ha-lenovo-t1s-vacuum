@@ -90,15 +90,15 @@
     "sensor": {
       "mode": {
         "state": {
-          "sweep": "sweep",
+          "idle": "Idle",
+          "charge": "Charging",
+          "fullcharge": "Fully charged",
+          "sweep": "Cleaning",
           "rfctrl": "Remote control",
-          "pause": "pause",
-          "findchargerpause": "findchargerpause",
-          "backcharge": "backcharge",
-          "charge": "charge",
-          "fullcharge": "fullcharge",
-          "idle": "idle",
-          "fault": "fault"
+          "pause": "Paused",
+          "findchargerpause": "Paused, finding dock",
+          "backcharge": "Returning to dock",
+          "fault": "Fault"
         }
       }
     }

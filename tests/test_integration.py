@@ -256,5 +256,41 @@ def test_mode_translation_text():
     from custom_components.lenovo_t1.sensor import MODES
     for name in ("strings.json", "translations/en.json"):
         states = json.loads((base / name).read_text())["entity"]["sensor"]["mode"]["state"]
-        assert states["rfctrl"] == "Remote control"
+        assert states["rfctrl"] == "Remote control" and states["backcharge"] == "Returning to dock"
+        assert all(v and v != k for k, v in states.items())
         assert set(states) == set(MODES)
+
+
+async def test_overview_sensors(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    assert hass.states.get("sensor.lenovo_t1_pro_map_id").state == "5"
+    rooms = hass.states.get("sensor.lenovo_t1_pro_rooms")
+    assert rooms.state == "3"
+    assert rooms.attributes["rooms"][1] == {"id": 2, "name": "Kitchen", "passes": "double"}
+    assert hass.states.get("binary_sensor.lenovo_t1_pro_map_saved").state == "on"
+    assert hass.states.get("binary_sensor.lenovo_t1_pro_connection").state == "on"
+    assert hass.states.get("sensor.lenovo_t1_pro_reconnects").state == "0"
+    assert hass.states.get("sensor.lenovo_t1_pro_last_event").state == "unknown"
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 6023}, "type": "message"}})
+    client.handle_payload({"infoType": 20001, "data": {"subMode": "smartArea"}})
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.lenovo_t1_pro_last_event").state == "cleaning completed"
+    assert hass.states.get("sensor.lenovo_t1_pro_clean_type").state == "smartArea"
+
+
+async def test_connection_sensor_stays_available_when_offline(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.connected = False
+    client._notify()
+    await hass.async_block_till_done()
+    assert hass.states.get("binary_sensor.lenovo_t1_pro_connection").state == "off"
+    assert hass.states.get("sensor.lenovo_t1_pro_battery").state == "unavailable"
+
+
+async def test_no_map_shows_unknown_map_id(hass, fake_client):
+    entry, client = await _setup(hass, fake_client)
+    client.handle_payload({"infoType": 21004, "data": {"mapId": -1, "autoAreaValue": []}})
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.lenovo_t1_pro_map_id").state == "unknown"
+    assert hass.states.get("binary_sensor.lenovo_t1_pro_map_saved").state == "off"
+    assert hass.states.get("sensor.lenovo_t1_pro_rooms").state == "0"

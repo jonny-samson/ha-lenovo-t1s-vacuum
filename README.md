@@ -48,9 +48,14 @@ until the next one starts), **Fault** (text, code in attributes) and a **Problem
 whenever there is a fault, and filter / side brush / main brush / sensors life remaining (hours of 200).
 **Diagnostics:** Wi-Fi network, Wi-Fi signal (0-100 quality as the vacuum reports it, not dBm), firmware
 version (with the full version and MCU as attributes), and IP and MAC address (disabled by default). The
-raw **Mode** sensor is disabled by default.
+**Mode** sensor is disabled by default; it shows readable names (e.g. "Remote control"), and its state
+keeps the raw value such as `rfctrl`.
 **Controls:** volume (0-10), indicator light, find robot, and reset buttons for the filter, side brush, main
 brush and sensors life.
+
+**Overview / health (diagnostic):** Map ID, Rooms (count; the list with names and single/double pass is an
+attribute), Map saved, Clean type, Last event (latest message from the vacuum), Reconnects, and a Connection
+sensor that stays available while the vacuum is offline.
 
 State, rooms, consumables, Wi-Fi and firmware refresh on their own (every 30 s, 5 min, 10 min, 5 min and
 5 min), so there are no manual refresh buttons.

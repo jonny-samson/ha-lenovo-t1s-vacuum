@@ -20,6 +20,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: T1ConfigEntry,
     async_add_entities([
         T1Battery(entry), T1CleanArea(entry), T1CleanTime(entry), T1Fault(entry),
         T1Mode(entry), T1RoomQueue(entry), T1Firmware(entry),
+        T1MapId(entry), T1RoomCount(entry), T1CleanType(entry), T1LastEvent(entry), T1Reconnects(entry),
         T1Info(entry, "wifi_ssid", "Wi-Fi network", "wifi", "staId", "mdi:wifi"),
         T1WifiSignal(entry),
         T1Info(entry, "wifi_ip", "IP address", "wifi", "staIp", "mdi:ip-network", enabled=False),
@@ -108,7 +109,96 @@ class T1Mode(T1Entity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"raw_mode": self.client.mode}
+        # The whole last status report (position and timestamps are left out), handy for spotting new fields.
+        return {"raw_mode": self.client.mode, "report": dict(self.client.state)}
+
+
+class T1MapId(T1Entity, SensorEntity):
+    _attr_name = "Map ID"
+    _attr_icon = "mdi:map-marker-path"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "map_id")
+
+    @property
+    def native_value(self) -> int | None:
+        return self.client.map_id if self.client.has_map else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"map_saved": self.client.has_map}
+
+
+class T1RoomCount(T1Entity, SensorEntity):
+    _attr_name = "Rooms"
+    _attr_icon = "mdi:floor-plan"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "room_count")
+
+    @property
+    def native_value(self) -> int:
+        return len(self.client.rooms)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"rooms": [
+            {"id": r.get("id"), "name": room_label(r, r.get("id")),
+             "passes": "double" if r.get("active") == "depth" else "single"}
+            for r in self.client.rooms]}
+
+
+class T1CleanType(T1Entity, SensorEntity):
+    """How the current clean was started (subMode in the status report), when the vacuum says."""
+
+    _attr_name = "Clean type"
+    _attr_icon = "mdi:broom"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "clean_type")
+
+    @property
+    def native_value(self) -> str | None:
+        value = self.client.state.get("subMode")
+        return None if value in (None, "", "null") else str(value)
+
+
+class T1LastEvent(T1Entity, SensorEntity):
+    """The latest informational message from the vacuum, e.g. "cleaning completed"."""
+
+    _attr_name = "Last event"
+    _attr_icon = "mdi:message-text-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "last_event")
+
+    @property
+    def native_value(self) -> str | None:
+        return self.client.last_message_text
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"code": self.client.last_message}
+
+
+class T1Reconnects(T1Entity, SensorEntity):
+    """Times the connection to the vacuum was re-established since Home Assistant started."""
+
+    _attr_name = "Reconnects"
+    _attr_icon = "mdi:lan-connect"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: T1ConfigEntry) -> None:
+        super().__init__(entry, "reconnects")
+
+    @property
+    def native_value(self) -> int:
+        return self.client.reconnects
 
 
 class T1Info(T1Entity, SensorEntity):

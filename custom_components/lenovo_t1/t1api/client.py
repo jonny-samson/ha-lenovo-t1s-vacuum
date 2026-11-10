@@ -95,6 +95,7 @@ class T1Client:
         self._last_time: int | float | None = None
         self.fault: int = 0
         self.last_message: int | None = None  # last 20003 type=message code
+        self.connect_count = 0  # successful connections since start; first one is not a reconnect
         self._seen_state = False
 
     # ---- lifecycle ----
@@ -162,6 +163,16 @@ class T1Client:
     @property
     def fault_text(self) -> str:
         return FAULT_CODES.get(self.fault, f"unknown ({self.fault})") if self.fault else "ok"
+
+    @property
+    def last_message_text(self) -> str | None:
+        if self.last_message is None:
+            return None
+        return FAULT_CODES.get(self.last_message, f"unknown ({self.last_message})")
+
+    @property
+    def reconnects(self) -> int:
+        return max(0, self.connect_count - 1)
 
     @property
     def has_map(self) -> bool:
@@ -258,6 +269,7 @@ class T1Client:
                 if isinstance(status, dict) and status.get("Error"):
                     raise ConnectionError(status.get("Error"))
                 self.connected = True
+                self.connect_count += 1
                 backoff = MIN_BACKOFF
                 self.refresh()
                 self._notify()

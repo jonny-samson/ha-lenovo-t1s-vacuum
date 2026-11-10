@@ -192,3 +192,13 @@ def test_last_clean_values_are_kept_between_cleans(client):
     assert client.clean_area == 14 and client.clean_time == 1900
     report(mode="sweep", cleanArea=0, cleanTime=0)
     assert client.clean_area == 0 and client.clean_time == 0
+
+
+def test_last_event_text_and_reconnects(client):
+    assert client.last_message_text is None and client.reconnects == 0
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 6023}, "type": "message"}})
+    assert client.last_message_text == "cleaning completed"
+    client.handle_payload({"infoType": 20003, "data": {"msg": {"code": 1}, "type": "message"}})
+    assert client.last_message_text == "unknown (1)"
+    client.connect_count = 3
+    assert client.reconnects == 2
